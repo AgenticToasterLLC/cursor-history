@@ -1487,7 +1487,8 @@ function loadWorkspaceComposerIdsOnly(
       const rows = db
         .prepare(
           `SELECT CAST(j.key AS INTEGER) AS itemIndex,
-             length(CAST(json_extract(j.value, '$.composerId') AS BLOB)) AS byteLength
+             length(CAST(json_extract(j.value, '$.composerId') AS BLOB)) AS byteLength,
+             json_extract(j.value, '$.composerId') AS composerId
            FROM ItemTable AS i, json_each(i.value, '$.allComposers') AS j
            WHERE i.rowid = ?
              AND json_type(j.value, '$.composerId') = 'text'
@@ -1519,7 +1520,7 @@ function loadWorkspaceComposerIdsOnly(
         break;
       }
 
-      const metadata = rows.map(({ itemIndex, byteLength }) => {
+      const metadata = rows.map(({ itemIndex, byteLength, composerId }) => {
         const normalizedIndex = Number(itemIndex);
         const normalizedLength = Number(byteLength);
         if (
@@ -1530,25 +1531,22 @@ function loadWorkspaceComposerIdsOnly(
         ) {
           throw new TypeError('SQLite returned invalid Composer UUID projection metadata');
         }
-        return { itemIndex: normalizedIndex, byteLength: normalizedLength };
+        return { itemIndex: normalizedIndex, byteLength: normalizedLength, composerId };
       });
+      // Admission still precedes decoding: the whole page's declared lengths
+      // are checked before any ID is charged or retained. The IDs arrive in the
+      // same statement as their lengths, so each page parses the array once
+      // instead of once more per element (previously O(n^2) JSON parsing).
       budget.admitMetadataPage(metadata.map(({ byteLength }) => byteLength));
       for (const row of metadata) {
         throwIfReadAborted(signal);
-        const projected = db
-          .prepare(
-            `SELECT json_extract(j.value, '$.composerId') AS composerId
-             FROM ItemTable AS i, json_each(i.value, '$.allComposers') AS j
-             WHERE i.rowid = ? AND CAST(j.key AS INTEGER) = ?`
-          )
-          .get(source.rowId, row.itemIndex) as { composerId?: unknown } | undefined;
-        if (typeof projected?.composerId !== 'string') continue;
-        const actualBytes = Buffer.byteLength(projected.composerId);
+        if (typeof row.composerId !== 'string') continue;
+        const actualBytes = Buffer.byteLength(row.composerId);
         if (actualBytes !== row.byteLength) {
           throw new Error('Composer UUID projection changed after metadata admission.');
         }
         budget.admitDecodedValue(actualBytes);
-        ids.add(projected.composerId);
+        ids.add(row.composerId);
       }
       afterIndex = metadata[metadata.length - 1]!.itemIndex;
       if (rows.length < pageRows) break;
@@ -1723,6 +1721,25 @@ export async function findWorkspaces(
   backupPath?: string,
   readOptions: StorageReadOperationOptions = {}
 ): Promise<Workspace[]> {
+  // A direct call owns a private share: nothing is retained past this call.
+  return findWorkspacesWithShare(
+    customDataPath,
+    backupPath,
+    readOptions,
+    createDiscoveryReadShare()
+  );
+}
+
+/**
+ * Phase B. `share` carries the global scans and the raw per-workspace reads
+ * forward to later discovery phases of the same request.
+ */
+async function findWorkspacesWithShare(
+  customDataPath: string | undefined,
+  backupPath: string | undefined,
+  readOptions: StorageReadOperationOptions,
+  share: DiscoveryReadShare
+): Promise<Workspace[]> {
   const operationOptions = bindStorageReadOptions(readOptions);
   // T028: Support reading from backup
   if (backupPath) {
@@ -1747,6 +1764,7 @@ export async function findWorkspaces(
   let globalComposerRecords: GlobalComposerRecord[] = [];
   let globalBubbleCounts = new Map<string, number>();
   let globalComposerIdSpellings: ReadonlyMap<string, readonly string[]> = new Map();
+  let globalCatalog: LoadedGlobalCatalogScans | undefined;
   const globalCatalogBudget = createComposerSqliteBudget(
     resolveSourceReadLimits(operationOptions.sourceReadLimits)
   );
@@ -1793,6 +1811,7 @@ export async function findWorkspaces(
       const seenComposerIds = new Set<string>();
       const selectedIds: string[] = [];
       const pointerIds: string[] = [];
+      let capturedChatData: ChatDataResult | null = null;
       let workspaceDb: Database | null = null;
       try {
         throwIfReadAborted(operationOptions.signal);
@@ -1813,6 +1832,7 @@ export async function findWorkspaces(
           workspaceCatalogBudget,
           operationOptions.signal
         );
+        capturedChatData = result;
         if (result) {
           const parsed = parseChatData(result.data, result.bundle);
           for (const session of parsed) {
@@ -1874,22 +1894,19 @@ export async function findWorkspaces(
               .get();
             globalDbAvailable = Boolean(tableCheck);
             if (globalDbAvailable) {
-              globalComposerIdSpellings = loadGlobalComposerIdSpellings(
+              // One shared walk yields spellings, counts and (unfiltered)
+              // records; phase D reuses it instead of scanning again.
+              globalCatalog = ensureGlobalCatalogScans(
+                share,
                 globalDb,
                 globalCatalogBudget,
-                operationOptions.signal
+                operationOptions.signal,
+                !operationOptions.workspaceFilterPath
               );
+              globalComposerIdSpellings = globalCatalog.spellings;
               if (!operationOptions.workspaceFilterPath) {
-                globalComposerRecords = loadGlobalComposerRecords(
-                  globalDb,
-                  globalCatalogBudget,
-                  operationOptions.signal
-                );
-                globalBubbleCounts = loadGlobalBubbleCounts(
-                  globalDb,
-                  globalCatalogBudget,
-                  operationOptions.signal
-                );
+                globalComposerRecords = globalCatalog.records ?? [];
+                globalBubbleCounts = globalCatalog.bubbleCounts;
               }
             }
           } catch (error) {
@@ -1920,7 +1937,8 @@ export async function findWorkspaces(
           );
           const bubbleCount = operationOptions.workspaceFilterPath
             ? exactGlobalId
-              ? countGlobalComposerBubbles(
+              ? sharedExactBubbleCount(
+                  globalCatalog!,
                   globalDb,
                   exactGlobalId,
                   globalCatalogBudget,
@@ -1937,11 +1955,14 @@ export async function findWorkspaces(
         }
 
         if (operationOptions.workspaceFilterPath) {
-          for (const composerId of loadGlobalComposerMembershipIds(
-            globalDb,
-            workspaceForGlobalMatch,
-            globalCatalogBudget,
-            operationOptions.signal
+          for (const composerId of membershipIdsForWorkspace(
+            ensureGlobalMembershipRows(
+              share,
+              globalDb,
+              globalCatalogBudget,
+              operationOptions.signal
+            ),
+            workspaceForGlobalMatch
           )) {
             const logicalId = logicalSessionIdKey(composerId);
             if (seenComposerIds.has(logicalId)) continue;
@@ -1951,7 +1972,8 @@ export async function findWorkspaces(
             );
             if (
               !exactGlobalId ||
-              countGlobalComposerBubbles(
+              sharedExactBubbleCount(
+                globalCatalog!,
                 globalDb,
                 exactGlobalId,
                 globalCatalogBudget,
@@ -1965,15 +1987,18 @@ export async function findWorkspaces(
         }
 
         if (!operationOptions.workspaceFilterPath) {
-          for (const summary of getGlobalComposerSummariesForWorkspace(
+          // Counting needs only whether a record has bubbles; summaries (which
+          // stream bubble payloads) are built once, in phase D, for the
+          // composers that are actually listed.
+          for (const id of globalComposerIdsWithBubblesForWorkspace(
             globalDb,
             workspaceForGlobalMatch,
             globalComposerRecords,
-            globalBubbleCounts,
+            globalCatalog!,
             globalCatalogBudget,
             operationOptions.signal
           )) {
-            const logicalId = logicalSessionIdKey(summary.id);
+            const logicalId = logicalSessionIdKey(id);
             if (seenComposerIds.has(logicalId)) continue;
             seenComposerIds.add(logicalId);
             sessionCount++;
@@ -1991,6 +2016,9 @@ export async function findWorkspaces(
       }
 
       if (sessionCount > 0) {
+        // Phase C will read exactly these values again; keep them instead of
+        // reopening the database (bounded, released on first use).
+        rememberWorkspaceCatalogRead(share, dbPath, capturedChatData, pointerIds);
         workspaces.push(
           attachCountedComposerSessionIds(
             {
@@ -2127,51 +2155,6 @@ function loadGlobalBubbleCounts(
   return counts;
 }
 
-/** Read native Composer key spellings and group them by byte-exact v0.16 identity. */
-function loadGlobalComposerIdSpellings(
-  db: Database,
-  budget = createComposerSqliteBudget(),
-  signal?: AbortSignal
-): ReadonlyMap<string, readonly string[]> {
-  const byLogicalId = new Map<string, Set<string>>();
-  try {
-    const admit = (id: string): void => {
-      if (!id) return;
-      const logicalId = logicalSessionIdKey(id);
-      const spellings = byLogicalId.get(logicalId) ?? new Set<string>();
-      spellings.add(id);
-      byLogicalId.set(logicalId, spellings);
-    };
-    forEachBoundedComposerMetadata(
-      db,
-      'cursorDiskKV',
-      'composerData:%',
-      budget,
-      ({ key }) => {
-        const id = key.startsWith('composerData:') ? key.slice('composerData:'.length) : '';
-        admit(id);
-      },
-      signal
-    );
-    forEachBoundedComposerKeyMetadata(
-      db,
-      'cursorDiskKV',
-      'bubbleId:%',
-      budget,
-      ({ key }) => admit(key.split(':')[1] ?? ''),
-      signal
-    );
-  } catch (error) {
-    throwOwningDatabaseReadFailure(error);
-  }
-  return new Map(
-    [...byLogicalId].map(([logicalId, spellings]) => [
-      logicalId,
-      Object.freeze([...spellings].sort(compareCodePoints)),
-    ])
-  );
-}
-
 /** Prefer an exact observed spelling, otherwise select a deterministic real global spelling. */
 function selectGlobalComposerSpelling(
   spellings: readonly string[] | undefined,
@@ -2230,6 +2213,10 @@ function buildGlobalComposerSummary(
   if (!composerMetadata.createdAt || !composerMetadata.lastUpdatedAt) {
     // Preserve extrema over every direct timestamp, retaining only two messages.
     // Physical endpoints may have no timestamp or may not contain the extrema.
+    // Cost: this streams (and charges to the budget) every bubble payload of a
+    // composer whose metadata lacks createdAt/lastUpdatedAt. A first/last probe
+    // would not return identical values, so it is deliberately not used here;
+    // callers avoid the cost by not summarizing composers they will not list.
     let earliest: Message | undefined;
     let latest: Message | undefined;
     forEachBoundedComposerBubbleValueByExactPrefix(
@@ -2341,7 +2328,9 @@ function getGlobalComposerSummary(
 function loadGlobalComposerRecords(
   db: Database,
   budget = createComposerSqliteBudget(),
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Observes every admitted `composerData:%` key, including rows whose JSON is unusable. */
+  onKey?: (key: string) => void
 ): GlobalComposerRecord[] {
   const records: GlobalComposerRecord[] = [];
   try {
@@ -2351,6 +2340,7 @@ function loadGlobalComposerRecords(
       'composerData:%',
       budget,
       (row) => {
+        onKey?.(row.key);
         try {
           const data = JSON.parse(row.value) as unknown;
           if (isRecord(data)) records.push({ id: row.key.replace('composerData:', ''), data });
@@ -2443,17 +2433,19 @@ function projectGlobalComposerWorkspacePathMetadata(
 }
 
 /**
- * Read only UUID/workspace membership fields from global composer records.
- * SQLite performs the JSON projection so titles and other payload fields never
- * cross the adapter boundary during scoped discovery.
+ * Project only UUID/workspace attribution fields from every global composer
+ * record, exactly once. SQLite performs the JSON projection so titles and
+ * other payload fields never cross the adapter boundary during scoped
+ * discovery. Callers evaluate each candidate workspace against these rows in
+ * memory (`membershipIdsForWorkspace`), instead of re-running this full pass
+ * once per candidate workspace.
  */
-function loadGlobalComposerMembershipIds(
+function projectGlobalComposerMembershipRows(
   db: Database,
-  workspace: Workspace,
   budget = createComposerSqliteBudget(),
   signal?: AbortSignal
-): string[] {
-  const ids = new Set<string>();
+): GlobalComposerMembershipRow[] {
+  const rows: GlobalComposerMembershipRow[] = [];
   try {
     forEachBoundedComposerMetadata(
       db,
@@ -2494,46 +2486,274 @@ function loadGlobalComposerMembershipIds(
           );
           budget.admitDecodedValue(projectedBytes);
         }
-
-        let matches =
-          row.workspaceId === workspace.id ||
-          [row.fsPath, row.uriPath, row.externalPath, row.workspaceUri].some((candidate) =>
-            workspacePathMatches(candidate, workspace.path)
-          );
-        // Existing unit-test adapters may return the historical key/value row
-        // shape. Real SQLite never selects `value` in this projection query.
-        if (!matches && typeof row.value === 'string') {
-          try {
-            const parsed = JSON.parse(row.value) as unknown;
-            matches = isRecord(parsed) && composerBelongsToWorkspace(parsed, workspace);
-          } catch {
-            matches = false;
-          }
-        }
-        if (matches) ids.add(row.key.replace(/^composerData:/u, ''));
+        rows.push(row);
       },
       signal
     );
   } catch (error) {
     throwOwningDatabaseReadFailure(error);
   }
+  return rows;
+}
+
+/** Composer UUIDs, in projection order, whose global record is attributed to `workspace`. */
+function membershipIdsForWorkspace(
+  rows: readonly GlobalComposerMembershipRow[],
+  workspace: Workspace
+): string[] {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    let matches =
+      row.workspaceId === workspace.id ||
+      [row.fsPath, row.uriPath, row.externalPath, row.workspaceUri].some((candidate) =>
+        workspacePathMatches(candidate, workspace.path)
+      );
+    // Existing unit-test adapters may return the historical key/value row
+    // shape. Real SQLite never selects `value` in this projection query.
+    if (!matches && typeof row.value === 'string') {
+      try {
+        const parsed = JSON.parse(row.value) as unknown;
+        matches = isRecord(parsed) && composerBelongsToWorkspace(parsed, workspace);
+      } catch {
+        matches = false;
+      }
+    }
+    if (matches) ids.add(row.key.replace(/^composerData:/u, ''));
+  }
   return [...ids];
 }
 
-function getGlobalComposerSummariesForWorkspace(
+type GlobalCatalogBudget = ReturnType<typeof createComposerSqliteBudget>;
+
+/**
+ * Per-request global catalog scans. Discovery phase B (`findWorkspaces`),
+ * phase D and the backup phase all need the same facts about the global
+ * database; each fact is computed at most once per request and context.
+ */
+interface GlobalCatalogScans {
+  /** Logical ID to byte-exact native spellings (composerData keys and bubble keys). */
+  spellings?: ReadonlyMap<string, readonly string[]>;
+  /** Bubble key counts grouped by `key.split(':')[1]`: the unfiltered listing semantic. */
+  bubbleCounts?: Map<string, number>;
+  /** Counts of keys starting with exactly `bubbleId:<id>:`: the per-prefix semantic. */
+  strictBubbleCounts?: Map<string, number>;
+  /** Every parsed composerData record (unfiltered listings only). */
+  records?: GlobalComposerRecord[];
+  /** Workspace attribution projection of every composerData row (scoped listings only). */
+  membershipRows?: GlobalComposerMembershipRow[];
+}
+
+interface LoadedGlobalCatalogScans extends GlobalCatalogScans {
+  spellings: ReadonlyMap<string, readonly string[]>;
+  bubbleCounts: Map<string, number>;
+  strictBubbleCounts: Map<string, number>;
+}
+
+/** Raw workspace reads retained from phase B so phase C need not reopen the same database. */
+interface WorkspaceCatalogRead {
+  readonly result: ChatDataResult | null;
+  readonly pointerIds: readonly string[];
+  readonly bytes: number;
+}
+
+/**
+ * Upper bound for retained raw workspace payloads. Past it, phase C simply
+ * rereads the workspace database exactly as before.
+ */
+const WORKSPACE_READ_REUSE_MAX_BYTES = 64 * 1024 * 1024;
+
+/** Request-scoped reads shared between catalog discovery phases. Never outlives its context. */
+interface DiscoveryReadShare {
+  readonly global: GlobalCatalogScans;
+  readonly workspaceReads: Map<string, WorkspaceCatalogRead>;
+  workspaceReadBytes: number;
+}
+
+function createDiscoveryReadShare(): DiscoveryReadShare {
+  return { global: {}, workspaceReads: new Map(), workspaceReadBytes: 0 };
+}
+
+function clearDiscoveryReadShare(share: DiscoveryReadShare): void {
+  share.global.spellings = undefined;
+  share.global.bubbleCounts = undefined;
+  share.global.strictBubbleCounts = undefined;
+  share.global.records = undefined;
+  share.global.membershipRows = undefined;
+  share.workspaceReads.clear();
+  share.workspaceReadBytes = 0;
+}
+
+function rememberWorkspaceCatalogRead(
+  share: DiscoveryReadShare,
+  dbPath: string,
+  result: ChatDataResult | null,
+  pointerIds: readonly string[]
+): void {
+  let bytes = pointerIds.reduce((total, id) => total + id.length, 0);
+  if (result) {
+    bytes += result.data.length;
+    for (const value of Object.values(result.bundle)) {
+      if (typeof value === 'string') bytes += value.length;
+    }
+  }
+  if (share.workspaceReadBytes + bytes > WORKSPACE_READ_REUSE_MAX_BYTES) return;
+  const previous = share.workspaceReads.get(dbPath);
+  if (previous) share.workspaceReadBytes -= previous.bytes;
+  share.workspaceReads.set(dbPath, { result, pointerIds: [...pointerIds], bytes });
+  share.workspaceReadBytes += bytes;
+}
+
+/** Consume (and release) a retained read; a workspace is reused by phase C at most once. */
+function takeWorkspaceCatalogRead(
+  share: DiscoveryReadShare,
+  dbPath: string
+): WorkspaceCatalogRead | undefined {
+  const read = share.workspaceReads.get(dbPath);
+  if (!read) return undefined;
+  share.workspaceReads.delete(dbPath);
+  share.workspaceReadBytes -= read.bytes;
+  return read;
+}
+
+/**
+ * Compute, at most once per share, the global scans discovery needs.
+ *
+ * The `bubbleId:` key range is walked a single time and yields both the
+ * counts and the native ID spellings (previously two walks per phase, four
+ * per request). In unfiltered listings the record scan also supplies the
+ * composerData key spellings, so the composerData table is not walked a
+ * second time for metadata only. `needRecords` is false for workspace-scoped
+ * listings, which must not parse every composerData payload.
+ *
+ * Budget: every scan is charged to the caller's `budget` exactly as the
+ * unshared scan was; a scan reused from the share is charged once, to the
+ * phase that first needed it.
+ */
+function ensureGlobalCatalogScans(
+  share: DiscoveryReadShare,
+  db: Database,
+  budget: GlobalCatalogBudget,
+  signal: AbortSignal | undefined,
+  needRecords: boolean
+): LoadedGlobalCatalogScans {
+  const catalog = share.global;
+  const byLogicalId = new Map<string, Set<string>>();
+  const admit = (id: string): void => {
+    if (!id) return;
+    const logicalId = logicalSessionIdKey(id);
+    const spellings = byLogicalId.get(logicalId) ?? new Set<string>();
+    spellings.add(id);
+    byLogicalId.set(logicalId, spellings);
+  };
+  const admitComposerKey = (key: string): void =>
+    admit(key.startsWith('composerData:') ? key.slice('composerData:'.length) : '');
+
+  let composerKeysAdmitted = false;
+  if (needRecords && !catalog.records) {
+    catalog.records = loadGlobalComposerRecords(db, budget, signal, admitComposerKey);
+    composerKeysAdmitted = true;
+  }
+  if (!catalog.spellings || !catalog.bubbleCounts || !catalog.strictBubbleCounts) {
+    if (!composerKeysAdmitted) {
+      try {
+        forEachBoundedComposerMetadata(
+          db,
+          'cursorDiskKV',
+          'composerData:%',
+          budget,
+          ({ key }) => admitComposerKey(key),
+          signal
+        );
+      } catch (error) {
+        throwOwningDatabaseReadFailure(error);
+      }
+    }
+    const bubbleCounts = new Map<string, number>();
+    const strictBubbleCounts = new Map<string, number>();
+    try {
+      // Counting and spelling collection consume only keys, so one covering
+      // key-index walk serves both.
+      forEachBoundedComposerKeyMetadata(
+        db,
+        'cursorDiskKV',
+        'bubbleId:%',
+        budget,
+        ({ key }) => {
+          // key form: bubbleId:<composerId>:<bubbleId>
+          const parts = key.split(':');
+          const composerId = parts[1];
+          if (!composerId) return;
+          bubbleCounts.set(composerId, (bubbleCounts.get(composerId) ?? 0) + 1);
+          if (parts.length >= 3) {
+            strictBubbleCounts.set(composerId, (strictBubbleCounts.get(composerId) ?? 0) + 1);
+          }
+          admit(composerId);
+        },
+        signal
+      );
+    } catch (error) {
+      throwOwningDatabaseReadFailure(error);
+    }
+    catalog.bubbleCounts = bubbleCounts;
+    catalog.strictBubbleCounts = strictBubbleCounts;
+    catalog.spellings = new Map(
+      [...byLogicalId].map(([logicalId, spellings]) => [
+        logicalId,
+        Object.freeze([...spellings].sort(compareCodePoints)),
+      ])
+    );
+  }
+  return catalog as LoadedGlobalCatalogScans;
+}
+
+/**
+ * Bubble count of one exact native spelling, equal to
+ * `countGlobalComposerBubbles` but answered from the shared key walk. IDs the
+ * key walk cannot represent (separator, NUL, empty) fall back to the exact
+ * prefix probe so the result never depends on the optimization.
+ */
+function sharedExactBubbleCount(
+  catalog: LoadedGlobalCatalogScans,
+  db: Database,
+  composerId: string,
+  budget: GlobalCatalogBudget,
+  signal?: AbortSignal
+): number {
+  const known = catalog.strictBubbleCounts.get(composerId);
+  if (known !== undefined) return known;
+  if (composerId.length > 0 && !composerId.includes(':') && !composerId.includes('\0')) return 0;
+  return countGlobalComposerBubbles(db, composerId, budget, signal);
+}
+
+function ensureGlobalMembershipRows(
+  share: DiscoveryReadShare,
+  db: Database,
+  budget: GlobalCatalogBudget,
+  signal?: AbortSignal
+): readonly GlobalComposerMembershipRow[] {
+  share.global.membershipRows ??= projectGlobalComposerMembershipRows(db, budget, signal);
+  return share.global.membershipRows;
+}
+
+/**
+ * Lazily summarize the records attributed to `workspace`. `shouldSkip` is
+ * consulted immediately before each (possibly bubble-streaming) summary so
+ * composers the caller has already admitted are never rebuilt.
+ */
+function* iterateGlobalComposerSummariesForWorkspace(
   db: Database,
   workspace: Workspace,
   records: GlobalComposerRecord[],
   bubbleCounts?: Map<string, number>,
   budget = createComposerSqliteBudget(),
-  signal?: AbortSignal
-): GlobalComposerSummary[] {
-  const summaries: GlobalComposerSummary[] = [];
-
+  signal?: AbortSignal,
+  shouldSkip?: (record: GlobalComposerRecord) => boolean
+): Generator<GlobalComposerSummary> {
   for (const record of records) {
     if (!composerBelongsToWorkspace(record.data, workspace)) {
       continue;
     }
+    if (shouldSkip?.(record)) continue;
 
     const summary = buildGlobalComposerSummary(
       db,
@@ -2545,12 +2765,33 @@ function getGlobalComposerSummariesForWorkspace(
       budget,
       signal
     );
-    if (summary) {
-      summaries.push(summary);
-    }
+    if (summary) yield summary;
   }
+}
 
-  return summaries;
+/**
+ * IDs of workspace-attributed records that have at least one bubble. A summary
+ * is null exactly when its bubble count is not positive, so discovery counting
+ * needs the count only; it must not stream bubble payloads for timestamps or
+ * previews.
+ */
+function globalComposerIdsWithBubblesForWorkspace(
+  db: Database,
+  workspace: Workspace,
+  records: GlobalComposerRecord[],
+  catalog: LoadedGlobalCatalogScans,
+  budget: GlobalCatalogBudget,
+  signal?: AbortSignal
+): string[] {
+  const ids: string[] = [];
+  for (const record of records) {
+    if (!composerBelongsToWorkspace(record.data, workspace)) continue;
+    const bubbleCount =
+      catalog.bubbleCounts.get(record.id) ??
+      sharedExactBubbleCount(catalog, db, record.id, budget, signal);
+    if (bubbleCount > 0) ids.push(record.id);
+  }
+  return ids;
 }
 
 /**
@@ -2702,6 +2943,12 @@ interface SessionReadContextPrivateState {
   readonly boundComposerGlobalIdBySession: Map<string, string>;
   readonly boundStoreOccurrencesBySession: Map<string, readonly StorePhysicalOccurrence[]>;
   readonly emittedDiagnosticKeys: Set<string>;
+  /**
+   * Global-catalog scans and raw workspace reads shared between discovery
+   * phases of this one request. Operation-private and never carried across
+   * contexts or requests.
+   */
+  readonly discoveryShare: DiscoveryReadShare;
 }
 
 /** Physical Store locators stay operation-private and can never be cloned/serialized. */
@@ -2885,6 +3132,7 @@ export function createSessionReadContext(
         privateState?.boundComposerGlobalIdBySession.clear();
         privateState?.boundStoreOccurrencesBySession.clear();
         privateState?.emittedDiagnosticKeys.clear();
+        if (privateState) clearDiscoveryReadShare(privateState.discoveryShare);
         sessionReadContextPrivate.delete(context);
         emitContextOwnership(context);
       })();
@@ -2901,6 +3149,7 @@ export function createSessionReadContext(
     boundComposerGlobalIdBySession: new Map(),
     boundStoreOccurrencesBySession: new Map(),
     emittedDiagnosticKeys: new Set(),
+    discoveryShare: createDiscoveryReadShare(),
   });
 
   Object.defineProperty(context, 'resolvedSessions', {
@@ -3847,10 +4096,15 @@ async function getWorkspacesCached(
   if (context?.workspaces) return context.workspaces;
   if (context?.workspacesPromise) return context.workspacesPromise;
 
-  const discovery = findWorkspaces(customDataPath, backupPath, {
-    ...(context ?? {}),
-    ...(workspaceFilterPath ? { workspaceFilterPath } : {}),
-  });
+  const discovery = findWorkspacesWithShare(
+    customDataPath,
+    backupPath,
+    {
+      ...(context ?? {}),
+      ...(workspaceFilterPath ? { workspaceFilterPath } : {}),
+    },
+    context ? privateReadState(context).discoveryShare : createDiscoveryReadShare()
+  );
   if (!context) return discovery;
 
   const tracked = discovery.then((workspaces) => {
@@ -4368,40 +4622,54 @@ export async function listSessions(
     let workspaceDb: Database | null = null;
     let workspaceReadError: unknown;
     try {
-      // Open database from live or backup source
-      workspaceDb = backupPath
-        ? await openBackupDatabase(backupPath, workspace.dbPath, {
-            sourceReadLimits: context?.sourceReadLimits,
-            signal: options.signal ?? context?.signal,
-            sqliteDriver: context?.sqliteDriver,
-            io: context?.io,
-          })
-        : await openDatabase(
-            workspace.dbPath,
-            withDatabaseIo(context, {
-              resourceClass: 'workspace-conversation',
-              sourceRole: 'composer',
-              representation: 'composer-workspace',
+      // Phase B already read this live workspace database with identical
+      // calls; reuse that read (once) instead of reopening it. Backups keep
+      // the original per-workspace reopen, and any miss (oversized payload,
+      // cache already consumed) falls through to the original read.
+      const retainedRead = backupPath
+        ? undefined
+        : takeWorkspaceCatalogRead(privateReadState(context).discoveryShare, workspace.dbPath);
+      let result: ChatDataResult | null;
+      let pointerIds: string[];
+      if (retainedRead) {
+        result = retainedRead.result;
+        pointerIds = [...retainedRead.pointerIds];
+      } else {
+        // Open database from live or backup source
+        workspaceDb = backupPath
+          ? await openBackupDatabase(backupPath, workspace.dbPath, {
+              sourceReadLimits: context?.sourceReadLimits,
+              signal: options.signal ?? context?.signal,
+              sqliteDriver: context?.sqliteDriver,
+              io: context?.io,
             })
-          );
-      throwIfReadAborted(options.signal ?? context?.signal);
-      const workspaceCatalogBudget = createComposerSqliteBudget(
-        context.sourceReadLimits ?? SOURCE_READ_LIMITS_V1_DEFAULTS
-      );
-      const result = getChatDataFromDb(
-        workspaceDb,
-        workspaceCatalogBudget,
-        options.signal ?? context?.signal
-      );
-      // Pointer keys (e.g. composerChatViewPane.<guid>) live in ItemTable and link
-      // this workspace to its global composers even when no workspace stamp exists.
-      const pointerIds = backupPath
-        ? [...(getBackupLinkedGlobalSessionIds(workspace) ?? [])]
-        : getWorkspaceComposerPointerIds(
-            workspaceDb,
-            workspaceCatalogBudget,
-            options.signal ?? context?.signal
-          );
+          : await openDatabase(
+              workspace.dbPath,
+              withDatabaseIo(context, {
+                resourceClass: 'workspace-conversation',
+                sourceRole: 'composer',
+                representation: 'composer-workspace',
+              })
+            );
+        throwIfReadAborted(options.signal ?? context?.signal);
+        const workspaceCatalogBudget = createComposerSqliteBudget(
+          context.sourceReadLimits ?? SOURCE_READ_LIMITS_V1_DEFAULTS
+        );
+        result = getChatDataFromDb(
+          workspaceDb,
+          workspaceCatalogBudget,
+          options.signal ?? context?.signal
+        );
+        // Pointer keys (e.g. composerChatViewPane.<guid>) live in ItemTable and link
+        // this workspace to its global composers even when no workspace stamp exists.
+        pointerIds = backupPath
+          ? [...(getBackupLinkedGlobalSessionIds(workspace) ?? [])]
+          : getWorkspaceComposerPointerIds(
+              workspaceDb,
+              workspaceCatalogBudget,
+              options.signal ?? context?.signal
+            );
+      }
 
       const sessions = result ? parseChatData(result.data, result.bundle) : [];
       const workspaceSeenIds = new Set<string>();
@@ -4681,24 +4949,27 @@ export async function listSessions(
 
         if (tableCheck) {
           const openedGlobalDb = globalDb;
+          // Phase D's budget starts fresh as before. Scans phase B already ran
+          // (and charged to B's budget) are reused from the request's share and
+          // are therefore charged once per request instead of once per phase.
           const globalCatalogBudget = createComposerSqliteBudget(
             context.sourceReadLimits ?? SOURCE_READ_LIMITS_V1_DEFAULTS
+          );
+          const discoveryShare = privateReadState(context).discoveryShare;
+          const globalCatalog = ensureGlobalCatalogScans(
+            discoveryShare,
+            globalDb,
+            globalCatalogBudget,
+            options.signal ?? context.signal,
+            !activeWorkspacePath
           );
           // Unfiltered discovery already needs the complete bubble catalog for
           // catch-all recovery. Reuse that one bounded scan for Store UUID
           // probes instead of issuing one LIKE count per Store session.
           const globalBubbleCounts = activeWorkspacePath
             ? new Map<string, number>()
-            : loadGlobalBubbleCounts(
-                globalDb,
-                globalCatalogBudget,
-                options.signal ?? context.signal
-              );
-          const globalIdSpellings = loadGlobalComposerIdSpellings(
-            globalDb,
-            globalCatalogBudget,
-            options.signal ?? context.signal
-          );
+            : globalCatalog.bubbleCounts;
+          const globalIdSpellings = globalCatalog.spellings;
           const scopedStoreComposerIds = new Set<string>();
           const catalogProbeIds = new Set([...composerCandidatesById.keys(), ...selectedStoreIds]);
           for (const logicalId of catalogProbeIds) {
@@ -4706,7 +4977,8 @@ export async function listSessions(
             const exactBubbleCounts = new Map<string, number>();
             const exactWithPayload = exactIds.filter((exactId) => {
               const bubbleCount = activeWorkspacePath
-                ? countGlobalComposerBubbles(
+                ? sharedExactBubbleCount(
+                    globalCatalog,
                     openedGlobalDb,
                     exactId,
                     globalCatalogBudget,
@@ -4829,22 +5101,19 @@ export async function listSessions(
               }
             }
           }
-          const globalComposerRecords = activeWorkspacePath
-            ? []
-            : loadGlobalComposerRecords(
-                globalDb,
-                globalCatalogBudget,
-                options.signal ?? context.signal
-              );
-          if (activeWorkspacePath) {
+          const globalComposerRecords = activeWorkspacePath ? [] : (globalCatalog.records ?? []);
+          if (activeWorkspacePath && globalFallbackCandidates.length > 0) {
+            // One projection pass over the composerData rows serves every
+            // candidate workspace (previously one full pass per candidate).
+            const membershipRows = ensureGlobalMembershipRows(
+              discoveryShare,
+              globalDb,
+              globalCatalogBudget,
+              options.signal ?? context.signal
+            );
             for (const candidate of globalFallbackCandidates) {
               candidate.composerIds.push(
-                ...loadGlobalComposerMembershipIds(
-                  globalDb,
-                  candidate.workspace,
-                  globalCatalogBudget,
-                  options.signal ?? context.signal
-                )
+                ...membershipIdsForWorkspace(membershipRows, candidate.workspace)
               );
             }
           }
@@ -4874,7 +5143,8 @@ export async function listSessions(
                       ? new Map([
                           [
                             composerId,
-                            countGlobalComposerBubbles(
+                            sharedExactBubbleCount(
+                              globalCatalog,
                               globalDb,
                               composerId,
                               globalCatalogBudget,
@@ -4949,13 +5219,22 @@ export async function listSessions(
             }
 
             if (candidate.includeWorkspaceLinked && !activeWorkspacePath) {
-              for (const summary of getGlobalComposerSummariesForWorkspace(
+              for (const summary of iterateGlobalComposerSummariesForWorkspace(
                 globalDb,
                 candidate.workspace,
                 globalComposerRecords,
                 globalBubbleCounts,
                 globalCatalogBudget,
-                options.signal ?? context.signal
+                options.signal ?? context.signal,
+                // Never stream bubbles for a composer the loop below would skip.
+                (record) => {
+                  const recordLogicalId = logicalSessionIdKey(record.id);
+                  return (
+                    candidate.existingIds.has(recordLogicalId) ||
+                    Boolean(seenIds?.has(recordLogicalId)) ||
+                    recoveredIds.has(recordLogicalId)
+                  );
+                }
               )) {
                 const logicalId = logicalSessionIdKey(summary.id);
                 if (candidate.existingIds.has(logicalId)) continue;
@@ -5046,21 +5325,18 @@ export async function listSessions(
         const backupCatalogBudget = createComposerSqliteBudget(
           context.sourceReadLimits ?? SOURCE_READ_LIMITS_V1_DEFAULTS
         );
-        const globalComposerRecords = loadGlobalComposerRecords(
+        // The backup global database is not the live one, so it gets its own
+        // short-lived share; the merged scan walks bubble keys once, not twice.
+        const backupCatalog = ensureGlobalCatalogScans(
+          createDiscoveryReadShare(),
           backupGlobalDb,
           backupCatalogBudget,
-          options.signal ?? context.signal
+          options.signal ?? context.signal,
+          true
         );
-        const globalBubbleCounts = loadGlobalBubbleCounts(
-          backupGlobalDb,
-          backupCatalogBudget,
-          options.signal ?? context.signal
-        );
-        const globalIdSpellings = loadGlobalComposerIdSpellings(
-          backupGlobalDb,
-          backupCatalogBudget,
-          options.signal ?? context.signal
-        );
+        const globalComposerRecords = backupCatalog.records ?? [];
+        const globalBubbleCounts = backupCatalog.bubbleCounts;
+        const globalIdSpellings = backupCatalog.spellings;
         for (const logicalId of composerCandidatesById.keys()) {
           const candidates = composerCandidatesById.get(logicalId)!;
           const exactIds = globalIdSpellings.get(logicalId) ?? [];

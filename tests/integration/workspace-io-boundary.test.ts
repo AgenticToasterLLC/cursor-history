@@ -558,16 +558,18 @@ describe('operation-bound low-level I/O observation', () => {
     assertNoSessionPayloadIo(defaultRecorder.snapshot(), SESSION_INTEGRITY_IDS.workspaceB);
     assertNoSessionPayloadIo(optInRecorder.snapshot(), SESSION_INTEGRITY_IDS.workspaceB);
 
-    // The selected workspace is opened once for catalog attribution and once
-    // for the actual listing. Opening workspace B during either read would make
-    // this count exceed two even though its results were later filtered out.
+    // The selected workspace is opened exactly once: catalog attribution
+    // retains the raw reads that the listing loop consumes (R2), so the
+    // listing no longer reopens it. Opening workspace B during either read
+    // would make this count exceed one even though its results were later
+    // filtered out.
     expect(
       defaultRecorder.count({
         adapter: 'sqlite',
         operation: 'open',
         resourceClass: 'workspace-conversation',
       })
-    ).toBe(2);
+    ).toBe(1);
   });
 
   it('marks a pathless Store counterpart omitted by default and hydrates it only after opt-in', async () => {
@@ -861,11 +863,14 @@ describe('operation-bound low-level I/O observation', () => {
       id,
       resolution: { omittedSourceRoles: ['composer'] },
     });
+    // The selected UUID is resolved against global Composer metadata from the
+    // request's single key-only `bubbleId:` walk (R2) instead of a per-UUID
+    // prefix probe, so the event carries no per-session identity. It must
+    // still be a metadata-only bubble-index read.
     expect(
       defaultRecorder.count({
         classification: 'catalog-metadata',
         resourceClass: 'global-bubble-index',
-        logicalSessionId: id,
       })
     ).toBeGreaterThan(0);
     defaultRecorder.assertNone(

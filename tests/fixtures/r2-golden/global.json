@@ -1,0 +1,3457 @@
+{
+  "summaries": {
+    "ok": {
+      "data": [
+        {
+          "id": "bbbbbbbb-0000-0000-0000-000000000016",
+          "index": 0,
+          "indexScope": "global",
+          "workspace": "<ROOT>/workspaces/b",
+          "timestamp": "2027-01-15T08:00:00.000Z",
+          "title": "Workspace B newer session",
+          "preview": "needle-b",
+          "messageCount": 1,
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/b",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/b",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/b"
+              ],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/b"
+              ],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2027-01-15T08:00:00.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a8",
+          "index": 1,
+          "indexScope": "global",
+          "workspace": "unknown",
+          "timestamp": "2026-09-21T14:13:20.000Z",
+          "title": "Store complement global",
+          "preview": "needle-complement",
+          "messageCount": 1,
+          "source": "workspace-fallback",
+          "resolvedSource": "merged",
+          "sources": [
+            "composer",
+            "store"
+          ],
+          "preferredSource": "composer",
+          "resolution": {
+            "state": "partial",
+            "expectedSourceRoles": [
+              "composer",
+              "store"
+            ],
+            "loadedSourceRoles": [
+              "composer",
+              "store"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": [
+              "source-partial"
+            ]
+          },
+          "resolutionState": "partial",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "store",
+              "representation": "store-db",
+              "workspacePaths": [],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "epoch-unknown",
+          "transcriptState": "missing",
+          "metadata": {
+            "lastModified": "1970-01-01T00:00:00.000Z"
+          }
+        },
+        {
+          "id": "ABCDEF00-0000-0000-0000-0000000000B1",
+          "index": 2,
+          "indexScope": "global",
+          "workspace": "unknown",
+          "timestamp": "2026-02-02T02:41:40.000Z",
+          "title": "Upper spelling",
+          "preview": "(Empty session)",
+          "messageCount": 1,
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2026-02-02T02:41:40.000Z"
+          }
+        },
+        {
+          "id": "abcdef00-0000-0000-0000-0000000000b1",
+          "index": 3,
+          "indexScope": "global",
+          "workspace": "unknown",
+          "timestamp": "2026-02-02T02:40:00.000Z",
+          "title": "Lower spelling",
+          "preview": "(Empty session)",
+          "messageCount": 1,
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2026-02-02T02:40:00.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a6",
+          "index": 4,
+          "indexScope": "global",
+          "workspace": "unknown",
+          "timestamp": "2025-10-09T08:53:20.000Z",
+          "title": "Global unstamped",
+          "preview": "(Empty session)",
+          "messageCount": 2,
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "direct-message",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2025-10-09T08:53:25.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a5",
+          "index": 5,
+          "indexScope": "global",
+          "workspace": "<ROOT>/workspaces/b",
+          "timestamp": "2025-06-15T15:06:40.000Z",
+          "title": "Global stamped B",
+          "preview": "needle-stamped",
+          "messageCount": 1,
+          "source": "workspace-fallback",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "partial",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": [
+              "source-unavailable"
+            ]
+          },
+          "resolutionState": "partial",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/b",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/b",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/b"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2025-06-15T15:06:40.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a4",
+          "index": 6,
+          "indexScope": "global",
+          "workspace": "<ROOT>/workspaces/c",
+          "timestamp": "2025-02-19T21:20:00.000Z",
+          "title": "Selected linked",
+          "preview": "needle-selected",
+          "messageCount": 1,
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/c",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/c",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/c"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2025-02-19T21:20:01.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a3",
+          "index": 7,
+          "indexScope": "global",
+          "workspace": "<ROOT>/workspaces/c",
+          "timestamp": "2024-10-27T03:33:20.000Z",
+          "title": "Pointer linked",
+          "preview": "needle-pointer",
+          "messageCount": 1,
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/c",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/c",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/c"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2024-10-27T03:33:20.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a2",
+          "index": 8,
+          "indexScope": "global",
+          "workspace": "<ROOT>/workspaces/a",
+          "timestamp": "2024-07-03T09:46:40.000Z",
+          "title": "Workspace only composer",
+          "preview": "Workspace only composer",
+          "messageCount": 1,
+          "source": "workspace-fallback",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "partial",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": [
+              "source-unavailable"
+            ]
+          },
+          "resolutionState": "partial",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/a",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2024-07-03T09:46:40.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a1",
+          "index": 9,
+          "indexScope": "global",
+          "workspace": "<ROOT>/workspaces/a",
+          "timestamp": "2024-03-09T16:00:00.000Z",
+          "title": "Global no timestamps",
+          "preview": "needle-first",
+          "messageCount": 4,
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/a",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2024-03-09T16:00:00.000Z"
+          }
+        },
+        {
+          "id": "aaaaaaaa-0000-0000-0000-000000000016",
+          "index": 10,
+          "indexScope": "global",
+          "workspace": "<ROOT>/workspaces/a",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "title": "Workspace A older session",
+          "preview": "needle-a",
+          "messageCount": 1,
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/a",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2023-11-14T22:13:20.000Z"
+          }
+        },
+        {
+          "id": "eeeeeeee-0000-0000-0000-000000000016",
+          "index": 11,
+          "indexScope": "global",
+          "workspace": "unknown",
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "title": null,
+          "preview": "(Messages not loaded)",
+          "messageCount": 0,
+          "source": "workspace-fallback",
+          "resolvedSource": "store-metadata",
+          "sources": [
+            "store"
+          ],
+          "resolution": {
+            "state": "partial",
+            "expectedSourceRoles": [
+              "store"
+            ],
+            "loadedSourceRoles": [
+              "store"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": [
+              "source-unavailable"
+            ]
+          },
+          "resolutionState": "partial",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "store",
+              "representation": "store-db",
+              "workspacePaths": [],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "epoch-unknown",
+          "lastUpdatedAtSource": "epoch-unknown",
+          "metadata": {
+            "lastModified": "1970-01-01T00:00:00.000Z"
+          }
+        }
+      ],
+      "pagination": {
+        "total": 12,
+        "limit": 9007199254740991,
+        "offset": 0,
+        "hasMore": false
+      }
+    }
+  },
+  "sessions": {
+    "ok": {
+      "data": [
+        {
+          "id": "bbbbbbbb-0000-0000-0000-000000000016",
+          "workspace": "<ROOT>/workspaces/b",
+          "timestamp": "2027-01-15T08:00:00.000Z",
+          "messages": [
+            {
+              "id": "native-b",
+              "role": "user",
+              "content": "needle-b",
+              "timestamp": "2027-01-15T08:00:00.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 0,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/b",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/b",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/b"
+              ],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/b"
+              ],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "activeBranchBubbleIds": [
+            "native-b"
+          ],
+          "metadata": {
+            "lastModified": "2027-01-15T08:00:00.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a8",
+          "workspace": "unknown",
+          "timestamp": "2026-09-21T14:13:20.000Z",
+          "messages": [
+            {
+              "id": "c1",
+              "role": "user",
+              "content": "needle-complement",
+              "timestamp": "2026-09-21T14:13:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "both"
+            },
+            {
+              "id": "store:v1:db:a78c95644b7f2f0e4f8f9d419e83f992e72cd78d71c0ff5f7c5d4931d930c315:1",
+              "role": "assistant",
+              "content": "store complement answer",
+              "timestamp": "2026-09-21T14:13:20.000Z",
+              "timestampSource": "inferred-previous",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "store-db-v1",
+              "parentMessageId": "c1",
+              "source": "store"
+            }
+          ],
+          "messageCount": 2,
+          "index": 1,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "merged",
+          "sources": [
+            "composer",
+            "store"
+          ],
+          "preferredSource": "composer",
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer",
+              "store"
+            ],
+            "loadedSourceRoles": [
+              "composer",
+              "store"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "store",
+              "representation": "store-db",
+              "workspacePaths": [],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "transcriptState": "missing",
+          "metadata": {
+            "lastModified": "2026-09-21T14:13:20.000Z"
+          }
+        },
+        {
+          "id": "ABCDEF00-0000-0000-0000-0000000000B1",
+          "workspace": "unknown",
+          "timestamp": "2026-02-02T02:41:40.000Z",
+          "messages": [
+            {
+              "id": "u1",
+              "role": "user",
+              "content": "needle-upper",
+              "timestamp": "2026-02-02T02:41:40.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 2,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2026-02-02T02:41:40.000Z"
+          }
+        },
+        {
+          "id": "abcdef00-0000-0000-0000-0000000000b1",
+          "workspace": "unknown",
+          "timestamp": "2026-02-02T02:40:00.000Z",
+          "messages": [
+            {
+              "id": "l1",
+              "role": "user",
+              "content": "needle-lower",
+              "timestamp": "2026-02-02T02:40:00.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 3,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2026-02-02T02:40:00.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a6",
+          "workspace": "unknown",
+          "timestamp": "2025-10-09T08:53:20.000Z",
+          "messages": [
+            {
+              "id": "u1",
+              "role": "user",
+              "content": "needle-unstamped",
+              "timestamp": "2025-10-09T08:53:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "u2",
+              "role": "assistant",
+              "content": "answer",
+              "timestamp": "2025-10-09T08:53:25.000Z",
+              "metadata": {
+                "bubbleType": 2
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 2,
+          "index": 4,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "direct-message",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2025-10-09T08:53:25.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a5",
+          "workspace": "<ROOT>/workspaces/b",
+          "timestamp": "2025-06-15T15:06:40.000Z",
+          "messages": [
+            {
+              "id": "g1",
+              "role": "user",
+              "content": "needle-stamped",
+              "timestamp": "2025-06-15T15:06:40.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 5,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/b",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/b",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/b"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2025-06-15T15:06:40.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a4",
+          "workspace": "<ROOT>/workspaces/c",
+          "timestamp": "2025-02-19T21:20:00.000Z",
+          "messages": [
+            {
+              "id": "s1",
+              "role": "user",
+              "content": "needle-selected",
+              "timestamp": "2025-02-19T21:20:00.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 6,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/c",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/c",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/c"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2025-02-19T21:20:01.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a3",
+          "workspace": "<ROOT>/workspaces/c",
+          "timestamp": "2024-10-27T03:33:20.000Z",
+          "messages": [
+            {
+              "id": "p1",
+              "role": "user",
+              "content": "needle-pointer",
+              "timestamp": "2024-10-27T03:33:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 7,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/c",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/c",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/c"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "activeBranchBubbleIds": [
+            "p1"
+          ],
+          "metadata": {
+            "lastModified": "2024-10-27T03:33:20.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a2",
+          "workspace": "<ROOT>/workspaces/a",
+          "timestamp": "2024-07-03T09:46:40.000Z",
+          "messages": [
+            {
+              "id": "msg:0",
+              "role": "user",
+              "content": "Workspace only composer",
+              "timestamp": "2024-07-03T09:46:40.000Z",
+              "timestampSource": "session-fallback",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-v0.16-index",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 8,
+          "indexScope": "global",
+          "source": "workspace-fallback",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "partial",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": [
+              "source-unavailable"
+            ]
+          },
+          "resolutionState": "partial",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/a",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2024-07-03T09:46:40.000Z"
+          }
+        },
+        {
+          "id": "11111111-0000-0000-0000-0000000000a1",
+          "workspace": "<ROOT>/workspaces/a",
+          "timestamp": "2024-03-09T16:00:00.000Z",
+          "messages": [
+            {
+              "id": "b1",
+              "role": "user",
+              "content": "needle-first",
+              "timestamp": "2024-03-21T05:46:40.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "b2",
+              "role": "assistant",
+              "content": "reply",
+              "timestamp": "2024-04-13T09:20:00.000Z",
+              "metadata": {
+                "bubbleType": 2
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "b3",
+              "role": "assistant",
+              "content": "untimed reply",
+              "timestamp": "2024-02-27T02:13:20.000Z",
+              "metadata": {
+                "bubbleType": 2
+              },
+              "timestampSource": "inferred-next",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "b4",
+              "role": "user",
+              "content": "earlier",
+              "timestamp": "2024-02-27T02:13:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 4,
+          "index": 9,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/a",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2024-03-09T16:00:00.000Z"
+          }
+        },
+        {
+          "id": "aaaaaaaa-0000-0000-0000-000000000016",
+          "workspace": "<ROOT>/workspaces/a",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "messages": [
+            {
+              "id": "compat-row-0",
+              "role": "user",
+              "content": "needle-a",
+              "timestamp": "2023-11-14T22:13:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 10,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/a",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2023-11-14T22:13:20.000Z"
+          }
+        },
+        {
+          "id": "eeeeeeee-0000-0000-0000-000000000016",
+          "workspace": "unknown",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "messages": [
+            {
+              "id": "store:v1:db:b638cd0455b8969547d89d98e2e4fb1bf1efb386f5549a9b1f5f2e356a5f48c5:1",
+              "role": "user",
+              "content": "needle-store",
+              "timestamp": "2023-11-14T22:13:20.000Z",
+              "timestampSource": "session-fallback",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "store-db-v1",
+              "source": "store"
+            },
+            {
+              "id": "store:v1:db:81aac495773794b699fd5738613bd3f0f8a88aeef43070fcd6b9a9ac711467be:1",
+              "role": "assistant",
+              "content": "store answer",
+              "timestamp": "2023-11-14T22:13:20.000Z",
+              "timestampSource": "session-fallback",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "store-db-v1",
+              "parentMessageId": "store:v1:db:b638cd0455b8969547d89d98e2e4fb1bf1efb386f5549a9b1f5f2e356a5f48c5:1",
+              "source": "store"
+            }
+          ],
+          "messageCount": 2,
+          "index": 11,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "store-db",
+          "sources": [
+            "store"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "store"
+            ],
+            "loadedSourceRoles": [
+              "store"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "store",
+              "representation": "store-db",
+              "workspacePaths": [],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "store-db-metadata",
+          "lastUpdatedAtSource": "store-db-metadata",
+          "transcriptState": "missing",
+          "metadata": {
+            "lastModified": "2023-11-14T22:13:20.000Z"
+          }
+        }
+      ],
+      "pagination": {
+        "total": 12,
+        "limit": 9007199254740991,
+        "offset": 0,
+        "hasMore": false
+      }
+    }
+  },
+  "search:needle": {
+    "ok": [
+      {
+        "session": {
+          "id": "bbbbbbbb-0000-0000-0000-000000000016",
+          "workspace": "<ROOT>/workspaces/b",
+          "timestamp": "2027-01-15T08:00:00.000Z",
+          "messages": [
+            {
+              "id": "native-b",
+              "role": "user",
+              "content": "needle-b",
+              "timestamp": "2027-01-15T08:00:00.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 0,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/b",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/b",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/b"
+              ],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/b"
+              ],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "activeBranchBubbleIds": [
+            "native-b"
+          ],
+          "metadata": {
+            "lastModified": "2027-01-15T08:00:00.000Z"
+          }
+        },
+        "match": "needle-b",
+        "messageIndex": 0,
+        "offset": 0
+      },
+      {
+        "session": {
+          "id": "11111111-0000-0000-0000-0000000000a8",
+          "workspace": "unknown",
+          "timestamp": "2026-09-21T14:13:20.000Z",
+          "messages": [
+            {
+              "id": "c1",
+              "role": "user",
+              "content": "needle-complement",
+              "timestamp": "2026-09-21T14:13:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "both"
+            },
+            {
+              "id": "store:v1:db:a78c95644b7f2f0e4f8f9d419e83f992e72cd78d71c0ff5f7c5d4931d930c315:1",
+              "role": "assistant",
+              "content": "store complement answer",
+              "timestamp": "2026-09-21T14:13:20.000Z",
+              "timestampSource": "inferred-previous",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "store-db-v1",
+              "parentMessageId": "c1",
+              "source": "store"
+            }
+          ],
+          "messageCount": 2,
+          "index": 1,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "merged",
+          "sources": [
+            "composer",
+            "store"
+          ],
+          "preferredSource": "composer",
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer",
+              "store"
+            ],
+            "loadedSourceRoles": [
+              "composer",
+              "store"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "store",
+              "representation": "store-db",
+              "workspacePaths": [],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "transcriptState": "missing",
+          "metadata": {
+            "lastModified": "2026-09-21T14:13:20.000Z"
+          }
+        },
+        "match": "needle-complement",
+        "messageIndex": 0,
+        "offset": 0
+      },
+      {
+        "session": {
+          "id": "ABCDEF00-0000-0000-0000-0000000000B1",
+          "workspace": "unknown",
+          "timestamp": "2026-02-02T02:41:40.000Z",
+          "messages": [
+            {
+              "id": "u1",
+              "role": "user",
+              "content": "needle-upper",
+              "timestamp": "2026-02-02T02:41:40.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 2,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2026-02-02T02:41:40.000Z"
+          }
+        },
+        "match": "needle-upper",
+        "messageIndex": 0,
+        "offset": 0
+      },
+      {
+        "session": {
+          "id": "abcdef00-0000-0000-0000-0000000000b1",
+          "workspace": "unknown",
+          "timestamp": "2026-02-02T02:40:00.000Z",
+          "messages": [
+            {
+              "id": "l1",
+              "role": "user",
+              "content": "needle-lower",
+              "timestamp": "2026-02-02T02:40:00.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 3,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2026-02-02T02:40:00.000Z"
+          }
+        },
+        "match": "needle-lower",
+        "messageIndex": 0,
+        "offset": 0
+      },
+      {
+        "session": {
+          "id": "11111111-0000-0000-0000-0000000000a6",
+          "workspace": "unknown",
+          "timestamp": "2025-10-09T08:53:20.000Z",
+          "messages": [
+            {
+              "id": "u1",
+              "role": "user",
+              "content": "needle-unstamped",
+              "timestamp": "2025-10-09T08:53:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "u2",
+              "role": "assistant",
+              "content": "answer",
+              "timestamp": "2025-10-09T08:53:25.000Z",
+              "metadata": {
+                "bubbleType": 2
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 2,
+          "index": 4,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "direct-message",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2025-10-09T08:53:25.000Z"
+          }
+        },
+        "match": "needle-unstamped",
+        "messageIndex": 0,
+        "offset": 0
+      },
+      {
+        "session": {
+          "id": "11111111-0000-0000-0000-0000000000a5",
+          "workspace": "<ROOT>/workspaces/b",
+          "timestamp": "2025-06-15T15:06:40.000Z",
+          "messages": [
+            {
+              "id": "g1",
+              "role": "user",
+              "content": "needle-stamped",
+              "timestamp": "2025-06-15T15:06:40.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 5,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/b",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/b",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/b"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "direct-message",
+          "metadata": {
+            "lastModified": "2025-06-15T15:06:40.000Z"
+          }
+        },
+        "match": "needle-stamped",
+        "messageIndex": 0,
+        "offset": 0
+      },
+      {
+        "session": {
+          "id": "11111111-0000-0000-0000-0000000000a4",
+          "workspace": "<ROOT>/workspaces/c",
+          "timestamp": "2025-02-19T21:20:00.000Z",
+          "messages": [
+            {
+              "id": "s1",
+              "role": "user",
+              "content": "needle-selected",
+              "timestamp": "2025-02-19T21:20:00.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 6,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/c",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/c",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/c"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2025-02-19T21:20:01.000Z"
+          }
+        },
+        "match": "needle-selected",
+        "messageIndex": 0,
+        "offset": 0
+      },
+      {
+        "session": {
+          "id": "11111111-0000-0000-0000-0000000000a3",
+          "workspace": "<ROOT>/workspaces/c",
+          "timestamp": "2024-10-27T03:33:20.000Z",
+          "messages": [
+            {
+              "id": "p1",
+              "role": "user",
+              "content": "needle-pointer",
+              "timestamp": "2024-10-27T03:33:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 7,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/c",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/c",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/c"
+              ],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "activeBranchBubbleIds": [
+            "p1"
+          ],
+          "metadata": {
+            "lastModified": "2024-10-27T03:33:20.000Z"
+          }
+        },
+        "match": "needle-pointer",
+        "messageIndex": 0,
+        "offset": 0
+      },
+      {
+        "session": {
+          "id": "11111111-0000-0000-0000-0000000000a1",
+          "workspace": "<ROOT>/workspaces/a",
+          "timestamp": "2024-03-09T16:00:00.000Z",
+          "messages": [
+            {
+              "id": "b1",
+              "role": "user",
+              "content": "needle-first",
+              "timestamp": "2024-03-21T05:46:40.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "b2",
+              "role": "assistant",
+              "content": "reply",
+              "timestamp": "2024-04-13T09:20:00.000Z",
+              "metadata": {
+                "bubbleType": 2
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "b3",
+              "role": "assistant",
+              "content": "untimed reply",
+              "timestamp": "2024-02-27T02:13:20.000Z",
+              "metadata": {
+                "bubbleType": 2
+              },
+              "timestampSource": "inferred-next",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "b4",
+              "role": "user",
+              "content": "earlier",
+              "timestamp": "2024-02-27T02:13:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 4,
+          "index": 9,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/a",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2024-03-09T16:00:00.000Z"
+          }
+        },
+        "match": "needle-first",
+        "messageIndex": 0,
+        "offset": 0
+      },
+      {
+        "session": {
+          "id": "aaaaaaaa-0000-0000-0000-000000000016",
+          "workspace": "<ROOT>/workspaces/a",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "messages": [
+            {
+              "id": "compat-row-0",
+              "role": "user",
+              "content": "needle-a",
+              "timestamp": "2023-11-14T22:13:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 1,
+          "index": 10,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/a",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2023-11-14T22:13:20.000Z"
+          }
+        },
+        "match": "needle-a",
+        "messageIndex": 0,
+        "offset": 0
+      },
+      {
+        "session": {
+          "id": "eeeeeeee-0000-0000-0000-000000000016",
+          "workspace": "unknown",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "messages": [
+            {
+              "id": "store:v1:db:b638cd0455b8969547d89d98e2e4fb1bf1efb386f5549a9b1f5f2e356a5f48c5:1",
+              "role": "user",
+              "content": "needle-store",
+              "timestamp": "2023-11-14T22:13:20.000Z",
+              "timestampSource": "session-fallback",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "store-db-v1",
+              "source": "store"
+            },
+            {
+              "id": "store:v1:db:81aac495773794b699fd5738613bd3f0f8a88aeef43070fcd6b9a9ac711467be:1",
+              "role": "assistant",
+              "content": "store answer",
+              "timestamp": "2023-11-14T22:13:20.000Z",
+              "timestampSource": "session-fallback",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "store-db-v1",
+              "parentMessageId": "store:v1:db:b638cd0455b8969547d89d98e2e4fb1bf1efb386f5549a9b1f5f2e356a5f48c5:1",
+              "source": "store"
+            }
+          ],
+          "messageCount": 2,
+          "index": 11,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "store-db",
+          "sources": [
+            "store"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "store"
+            ],
+            "loadedSourceRoles": [
+              "store"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "workspaceMemberships": [],
+          "sourceInstances": [
+            {
+              "sourceRole": "store",
+              "representation": "store-db",
+              "workspacePaths": [],
+              "state": "contributed"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "store-db-metadata",
+          "lastUpdatedAtSource": "store-db-metadata",
+          "transcriptState": "missing",
+          "metadata": {
+            "lastModified": "2023-11-14T22:13:20.000Z"
+          }
+        },
+        "match": "needle-store",
+        "messageIndex": 0,
+        "offset": 0
+      }
+    ]
+  },
+  "search:reply": {
+    "ok": [
+      {
+        "session": {
+          "id": "11111111-0000-0000-0000-0000000000a1",
+          "workspace": "<ROOT>/workspaces/a",
+          "timestamp": "2024-03-09T16:00:00.000Z",
+          "messages": [
+            {
+              "id": "b1",
+              "role": "user",
+              "content": "needle-first",
+              "timestamp": "2024-03-21T05:46:40.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "b2",
+              "role": "assistant",
+              "content": "reply",
+              "timestamp": "2024-04-13T09:20:00.000Z",
+              "metadata": {
+                "bubbleType": 2
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "b3",
+              "role": "assistant",
+              "content": "untimed reply",
+              "timestamp": "2024-02-27T02:13:20.000Z",
+              "metadata": {
+                "bubbleType": 2
+              },
+              "timestampSource": "inferred-next",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            },
+            {
+              "id": "b4",
+              "role": "user",
+              "content": "earlier",
+              "timestamp": "2024-02-27T02:13:20.000Z",
+              "metadata": {
+                "bubbleType": 1
+              },
+              "timestampSource": "composer-created-at",
+              "messageIdentityVersion": 1,
+              "identityOrigin": "composer-native",
+              "source": "composer"
+            }
+          ],
+          "messageCount": 4,
+          "index": 9,
+          "indexScope": "global",
+          "source": "global",
+          "resolvedSource": "composer",
+          "sources": [
+            "composer"
+          ],
+          "resolution": {
+            "state": "complete",
+            "expectedSourceRoles": [
+              "composer"
+            ],
+            "loadedSourceRoles": [
+              "composer"
+            ],
+            "omittedSourceRoles": [],
+            "failedSourceRoles": [],
+            "reasonCodes": []
+          },
+          "resolutionState": "complete",
+          "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+          "workspaceMemberships": [
+            {
+              "workspacePath": "<ROOT>/workspaces/a",
+              "sourceRoles": [
+                "composer"
+              ],
+              "contributingInstanceCount": 1
+            }
+          ],
+          "sourceInstances": [
+            {
+              "sourceRole": "composer",
+              "representation": "composer-global",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "contributed"
+            },
+            {
+              "sourceRole": "composer",
+              "representation": "composer-workspace",
+              "workspacePaths": [
+                "<ROOT>/workspaces/a"
+              ],
+              "state": "superseded"
+            }
+          ],
+          "messageIdentityVersion": 1,
+          "createdAtSource": "composer-metadata",
+          "lastUpdatedAtSource": "composer-metadata",
+          "metadata": {
+            "lastModified": "2024-03-09T16:00:00.000Z"
+          }
+        },
+        "match": "reply",
+        "messageIndex": 1,
+        "offset": 0
+      }
+    ]
+  },
+  "get:11111111-0000-0000-0000-0000000000a1": {
+    "ok": {
+      "id": "11111111-0000-0000-0000-0000000000a1",
+      "workspace": "<ROOT>/workspaces/a",
+      "timestamp": "2024-03-09T16:00:00.000Z",
+      "messages": [
+        {
+          "id": "b1",
+          "role": "user",
+          "content": "needle-first",
+          "timestamp": "2024-03-21T05:46:40.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        },
+        {
+          "id": "b2",
+          "role": "assistant",
+          "content": "reply",
+          "timestamp": "2024-04-13T09:20:00.000Z",
+          "metadata": {
+            "bubbleType": 2
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        },
+        {
+          "id": "b3",
+          "role": "assistant",
+          "content": "untimed reply",
+          "timestamp": "2024-02-27T02:13:20.000Z",
+          "metadata": {
+            "bubbleType": 2
+          },
+          "timestampSource": "inferred-next",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        },
+        {
+          "id": "b4",
+          "role": "user",
+          "content": "earlier",
+          "timestamp": "2024-02-27T02:13:20.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        }
+      ],
+      "messageCount": 4,
+      "index": 9,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "composer",
+      "sources": [
+        "composer"
+      ],
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "composer"
+        ],
+        "loadedSourceRoles": [
+          "composer"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+      "workspaceMemberships": [
+        {
+          "workspacePath": "<ROOT>/workspaces/a",
+          "sourceRoles": [
+            "composer"
+          ],
+          "contributingInstanceCount": 1
+        }
+      ],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-global",
+          "workspacePaths": [
+            "<ROOT>/workspaces/a"
+          ],
+          "state": "contributed"
+        },
+        {
+          "sourceRole": "composer",
+          "representation": "composer-workspace",
+          "workspacePaths": [
+            "<ROOT>/workspaces/a"
+          ],
+          "state": "superseded"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "composer-metadata",
+      "lastUpdatedAtSource": "composer-metadata",
+      "metadata": {
+        "lastModified": "2024-03-09T16:00:00.000Z"
+      }
+    }
+  },
+  "get:11111111-0000-0000-0000-0000000000a2": {
+    "ok": {
+      "id": "11111111-0000-0000-0000-0000000000a2",
+      "workspace": "<ROOT>/workspaces/a",
+      "timestamp": "2024-07-03T09:46:40.000Z",
+      "messages": [
+        {
+          "id": "msg:0",
+          "role": "user",
+          "content": "Workspace only composer",
+          "timestamp": "2024-07-03T09:46:40.000Z",
+          "timestampSource": "session-fallback",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-v0.16-index",
+          "source": "composer"
+        }
+      ],
+      "messageCount": 1,
+      "index": 8,
+      "indexScope": "global",
+      "source": "workspace-fallback",
+      "resolvedSource": "composer",
+      "sources": [
+        "composer"
+      ],
+      "resolution": {
+        "state": "partial",
+        "expectedSourceRoles": [
+          "composer"
+        ],
+        "loadedSourceRoles": [
+          "composer"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": [
+          "source-unavailable"
+        ]
+      },
+      "resolutionState": "partial",
+      "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+      "workspaceMemberships": [
+        {
+          "workspacePath": "<ROOT>/workspaces/a",
+          "sourceRoles": [
+            "composer"
+          ],
+          "contributingInstanceCount": 1
+        }
+      ],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-workspace",
+          "workspacePaths": [
+            "<ROOT>/workspaces/a"
+          ],
+          "state": "contributed"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "composer-metadata",
+      "lastUpdatedAtSource": "composer-metadata",
+      "metadata": {
+        "lastModified": "2024-07-03T09:46:40.000Z"
+      }
+    }
+  },
+  "get:11111111-0000-0000-0000-0000000000a3": {
+    "ok": {
+      "id": "11111111-0000-0000-0000-0000000000a3",
+      "workspace": "<ROOT>/workspaces/c",
+      "timestamp": "2024-10-27T03:33:20.000Z",
+      "messages": [
+        {
+          "id": "p1",
+          "role": "user",
+          "content": "needle-pointer",
+          "timestamp": "2024-10-27T03:33:20.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        }
+      ],
+      "messageCount": 1,
+      "index": 7,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "composer",
+      "sources": [
+        "composer"
+      ],
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "composer"
+        ],
+        "loadedSourceRoles": [
+          "composer"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "canonicalWorkspacePath": "<ROOT>/workspaces/c",
+      "workspaceMemberships": [
+        {
+          "workspacePath": "<ROOT>/workspaces/c",
+          "sourceRoles": [
+            "composer"
+          ],
+          "contributingInstanceCount": 1
+        }
+      ],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-global",
+          "workspacePaths": [
+            "<ROOT>/workspaces/c"
+          ],
+          "state": "contributed"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "composer-metadata",
+      "lastUpdatedAtSource": "composer-metadata",
+      "activeBranchBubbleIds": [
+        "p1"
+      ],
+      "metadata": {
+        "lastModified": "2024-10-27T03:33:20.000Z"
+      }
+    }
+  },
+  "get:11111111-0000-0000-0000-0000000000a4": {
+    "ok": {
+      "id": "11111111-0000-0000-0000-0000000000a4",
+      "workspace": "<ROOT>/workspaces/c",
+      "timestamp": "2025-02-19T21:20:00.000Z",
+      "messages": [
+        {
+          "id": "s1",
+          "role": "user",
+          "content": "needle-selected",
+          "timestamp": "2025-02-19T21:20:00.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        }
+      ],
+      "messageCount": 1,
+      "index": 6,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "composer",
+      "sources": [
+        "composer"
+      ],
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "composer"
+        ],
+        "loadedSourceRoles": [
+          "composer"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "canonicalWorkspacePath": "<ROOT>/workspaces/c",
+      "workspaceMemberships": [
+        {
+          "workspacePath": "<ROOT>/workspaces/c",
+          "sourceRoles": [
+            "composer"
+          ],
+          "contributingInstanceCount": 1
+        }
+      ],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-global",
+          "workspacePaths": [
+            "<ROOT>/workspaces/c"
+          ],
+          "state": "contributed"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "composer-metadata",
+      "lastUpdatedAtSource": "composer-metadata",
+      "metadata": {
+        "lastModified": "2025-02-19T21:20:01.000Z"
+      }
+    }
+  },
+  "get:11111111-0000-0000-0000-0000000000a5": {
+    "ok": {
+      "id": "11111111-0000-0000-0000-0000000000a5",
+      "workspace": "<ROOT>/workspaces/b",
+      "timestamp": "2025-06-15T15:06:40.000Z",
+      "messages": [
+        {
+          "id": "g1",
+          "role": "user",
+          "content": "needle-stamped",
+          "timestamp": "2025-06-15T15:06:40.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        }
+      ],
+      "messageCount": 1,
+      "index": 5,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "composer",
+      "sources": [
+        "composer"
+      ],
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "composer"
+        ],
+        "loadedSourceRoles": [
+          "composer"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "canonicalWorkspacePath": "<ROOT>/workspaces/b",
+      "workspaceMemberships": [
+        {
+          "workspacePath": "<ROOT>/workspaces/b",
+          "sourceRoles": [
+            "composer"
+          ],
+          "contributingInstanceCount": 1
+        }
+      ],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-workspace",
+          "workspacePaths": [
+            "<ROOT>/workspaces/b"
+          ],
+          "state": "contributed"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "composer-metadata",
+      "lastUpdatedAtSource": "direct-message",
+      "metadata": {
+        "lastModified": "2025-06-15T15:06:40.000Z"
+      }
+    }
+  },
+  "get:11111111-0000-0000-0000-0000000000a6": {
+    "ok": {
+      "id": "11111111-0000-0000-0000-0000000000a6",
+      "workspace": "unknown",
+      "timestamp": "2025-10-09T08:53:20.000Z",
+      "messages": [
+        {
+          "id": "u1",
+          "role": "user",
+          "content": "needle-unstamped",
+          "timestamp": "2025-10-09T08:53:20.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        },
+        {
+          "id": "u2",
+          "role": "assistant",
+          "content": "answer",
+          "timestamp": "2025-10-09T08:53:25.000Z",
+          "metadata": {
+            "bubbleType": 2
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        }
+      ],
+      "messageCount": 2,
+      "index": 4,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "composer",
+      "sources": [
+        "composer"
+      ],
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "composer"
+        ],
+        "loadedSourceRoles": [
+          "composer"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "workspaceMemberships": [],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-global",
+          "workspacePaths": [],
+          "state": "contributed"
+        },
+        {
+          "sourceRole": "composer",
+          "representation": "composer-workspace",
+          "workspacePaths": [],
+          "state": "superseded"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "direct-message",
+      "lastUpdatedAtSource": "direct-message",
+      "metadata": {
+        "lastModified": "2025-10-09T08:53:25.000Z"
+      }
+    }
+  },
+  "get:11111111-0000-0000-0000-0000000000a8": {
+    "ok": {
+      "id": "11111111-0000-0000-0000-0000000000a8",
+      "workspace": "unknown",
+      "timestamp": "2026-09-21T14:13:20.000Z",
+      "messages": [
+        {
+          "id": "c1",
+          "role": "user",
+          "content": "needle-complement",
+          "timestamp": "2026-09-21T14:13:20.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "both"
+        },
+        {
+          "id": "store:v1:db:a78c95644b7f2f0e4f8f9d419e83f992e72cd78d71c0ff5f7c5d4931d930c315:1",
+          "role": "assistant",
+          "content": "store complement answer",
+          "timestamp": "2026-09-21T14:13:20.000Z",
+          "timestampSource": "inferred-previous",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "store-db-v1",
+          "parentMessageId": "c1",
+          "source": "store"
+        }
+      ],
+      "messageCount": 2,
+      "index": 1,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "merged",
+      "sources": [
+        "composer",
+        "store"
+      ],
+      "preferredSource": "composer",
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "composer",
+          "store"
+        ],
+        "loadedSourceRoles": [
+          "composer",
+          "store"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "workspaceMemberships": [],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-global",
+          "workspacePaths": [],
+          "state": "contributed"
+        },
+        {
+          "sourceRole": "store",
+          "representation": "store-db",
+          "workspacePaths": [],
+          "state": "contributed"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "composer-metadata",
+      "lastUpdatedAtSource": "direct-message",
+      "transcriptState": "missing",
+      "metadata": {
+        "lastModified": "2026-09-21T14:13:20.000Z"
+      }
+    }
+  },
+  "get:ABCDEF00-0000-0000-0000-0000000000B1": {
+    "ok": {
+      "id": "ABCDEF00-0000-0000-0000-0000000000B1",
+      "workspace": "unknown",
+      "timestamp": "2026-02-02T02:41:40.000Z",
+      "messages": [
+        {
+          "id": "u1",
+          "role": "user",
+          "content": "needle-upper",
+          "timestamp": "2026-02-02T02:41:40.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        }
+      ],
+      "messageCount": 1,
+      "index": 2,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "composer",
+      "sources": [
+        "composer"
+      ],
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "composer"
+        ],
+        "loadedSourceRoles": [
+          "composer"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "workspaceMemberships": [],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-global",
+          "workspacePaths": [],
+          "state": "contributed"
+        },
+        {
+          "sourceRole": "composer",
+          "representation": "composer-workspace",
+          "workspacePaths": [],
+          "state": "superseded"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "composer-metadata",
+      "lastUpdatedAtSource": "direct-message",
+      "metadata": {
+        "lastModified": "2026-02-02T02:41:40.000Z"
+      }
+    }
+  },
+  "get:aaaaaaaa-0000-0000-0000-000000000016": {
+    "ok": {
+      "id": "aaaaaaaa-0000-0000-0000-000000000016",
+      "workspace": "<ROOT>/workspaces/a",
+      "timestamp": "2023-11-14T22:13:20.000Z",
+      "messages": [
+        {
+          "id": "compat-row-0",
+          "role": "user",
+          "content": "needle-a",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        }
+      ],
+      "messageCount": 1,
+      "index": 10,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "composer",
+      "sources": [
+        "composer"
+      ],
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "composer"
+        ],
+        "loadedSourceRoles": [
+          "composer"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "canonicalWorkspacePath": "<ROOT>/workspaces/a",
+      "workspaceMemberships": [
+        {
+          "workspacePath": "<ROOT>/workspaces/a",
+          "sourceRoles": [
+            "composer"
+          ],
+          "contributingInstanceCount": 1
+        }
+      ],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-global",
+          "workspacePaths": [
+            "<ROOT>/workspaces/a"
+          ],
+          "state": "contributed"
+        },
+        {
+          "sourceRole": "composer",
+          "representation": "composer-workspace",
+          "workspacePaths": [
+            "<ROOT>/workspaces/a"
+          ],
+          "state": "superseded"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "composer-metadata",
+      "lastUpdatedAtSource": "composer-metadata",
+      "metadata": {
+        "lastModified": "2023-11-14T22:13:20.000Z"
+      }
+    }
+  },
+  "get:abcdef00-0000-0000-0000-0000000000b1": {
+    "ok": {
+      "id": "abcdef00-0000-0000-0000-0000000000b1",
+      "workspace": "unknown",
+      "timestamp": "2026-02-02T02:40:00.000Z",
+      "messages": [
+        {
+          "id": "l1",
+          "role": "user",
+          "content": "needle-lower",
+          "timestamp": "2026-02-02T02:40:00.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        }
+      ],
+      "messageCount": 1,
+      "index": 3,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "composer",
+      "sources": [
+        "composer"
+      ],
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "composer"
+        ],
+        "loadedSourceRoles": [
+          "composer"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "workspaceMemberships": [],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-global",
+          "workspacePaths": [],
+          "state": "contributed"
+        },
+        {
+          "sourceRole": "composer",
+          "representation": "composer-workspace",
+          "workspacePaths": [],
+          "state": "superseded"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "composer-metadata",
+      "lastUpdatedAtSource": "direct-message",
+      "metadata": {
+        "lastModified": "2026-02-02T02:40:00.000Z"
+      }
+    }
+  },
+  "get:bbbbbbbb-0000-0000-0000-000000000016": {
+    "ok": {
+      "id": "bbbbbbbb-0000-0000-0000-000000000016",
+      "workspace": "<ROOT>/workspaces/b",
+      "timestamp": "2027-01-15T08:00:00.000Z",
+      "messages": [
+        {
+          "id": "native-b",
+          "role": "user",
+          "content": "needle-b",
+          "timestamp": "2027-01-15T08:00:00.000Z",
+          "metadata": {
+            "bubbleType": 1
+          },
+          "timestampSource": "composer-created-at",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "composer-native",
+          "source": "composer"
+        }
+      ],
+      "messageCount": 1,
+      "index": 0,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "composer",
+      "sources": [
+        "composer"
+      ],
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "composer"
+        ],
+        "loadedSourceRoles": [
+          "composer"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "canonicalWorkspacePath": "<ROOT>/workspaces/b",
+      "workspaceMemberships": [
+        {
+          "workspacePath": "<ROOT>/workspaces/b",
+          "sourceRoles": [
+            "composer"
+          ],
+          "contributingInstanceCount": 1
+        }
+      ],
+      "sourceInstances": [
+        {
+          "sourceRole": "composer",
+          "representation": "composer-global",
+          "workspacePaths": [
+            "<ROOT>/workspaces/b"
+          ],
+          "state": "contributed"
+        },
+        {
+          "sourceRole": "composer",
+          "representation": "composer-workspace",
+          "workspacePaths": [
+            "<ROOT>/workspaces/b"
+          ],
+          "state": "superseded"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "composer-metadata",
+      "lastUpdatedAtSource": "composer-metadata",
+      "activeBranchBubbleIds": [
+        "native-b"
+      ],
+      "metadata": {
+        "lastModified": "2027-01-15T08:00:00.000Z"
+      }
+    }
+  },
+  "get:eeeeeeee-0000-0000-0000-000000000016": {
+    "ok": {
+      "id": "eeeeeeee-0000-0000-0000-000000000016",
+      "workspace": "unknown",
+      "timestamp": "2023-11-14T22:13:20.000Z",
+      "messages": [
+        {
+          "id": "store:v1:db:b638cd0455b8969547d89d98e2e4fb1bf1efb386f5549a9b1f5f2e356a5f48c5:1",
+          "role": "user",
+          "content": "needle-store",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "timestampSource": "session-fallback",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "store-db-v1",
+          "source": "store"
+        },
+        {
+          "id": "store:v1:db:81aac495773794b699fd5738613bd3f0f8a88aeef43070fcd6b9a9ac711467be:1",
+          "role": "assistant",
+          "content": "store answer",
+          "timestamp": "2023-11-14T22:13:20.000Z",
+          "timestampSource": "session-fallback",
+          "messageIdentityVersion": 1,
+          "identityOrigin": "store-db-v1",
+          "parentMessageId": "store:v1:db:b638cd0455b8969547d89d98e2e4fb1bf1efb386f5549a9b1f5f2e356a5f48c5:1",
+          "source": "store"
+        }
+      ],
+      "messageCount": 2,
+      "index": 11,
+      "indexScope": "global",
+      "source": "global",
+      "resolvedSource": "store-db",
+      "sources": [
+        "store"
+      ],
+      "resolution": {
+        "state": "complete",
+        "expectedSourceRoles": [
+          "store"
+        ],
+        "loadedSourceRoles": [
+          "store"
+        ],
+        "omittedSourceRoles": [],
+        "failedSourceRoles": [],
+        "reasonCodes": []
+      },
+      "resolutionState": "complete",
+      "workspaceMemberships": [],
+      "sourceInstances": [
+        {
+          "sourceRole": "store",
+          "representation": "store-db",
+          "workspacePaths": [],
+          "state": "contributed"
+        }
+      ],
+      "messageIdentityVersion": 1,
+      "createdAtSource": "store-db-metadata",
+      "lastUpdatedAtSource": "store-db-metadata",
+      "transcriptState": "missing",
+      "metadata": {
+        "lastModified": "2023-11-14T22:13:20.000Z"
+      }
+    }
+  }
+}
