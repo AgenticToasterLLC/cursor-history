@@ -46,8 +46,10 @@ async function profile(config: LibraryConfig) {
   return {
     opens,
     bubbleKeyRangeScans: count(BUBBLE_RANGE_SCAN),
+    // Matches both the legacy LIKE page query and R3's key-range gather
+    // (octet_length header-only projection); either way it must run once.
     composerDataPageQueries: count(
-      /^SELECT CAST\(cursorDiskKV\.rowid AS TEXT\) AS rowId, key, length\(CAST\(value AS BLOB\)\) AS byteLength FROM cursorDiskKV WHERE key LIKE/u
+      /^SELECT CAST\(cursorDiskKV\.rowid AS TEXT\) AS rowId, key, (?:length\(CAST\(value AS BLOB\)\)|octet_length\(value\)) AS byteLength FROM cursorDiskKV WHERE key /u
     ),
     membershipProjections: count(/END AS workspaceId/u),
     jsonEachStatements: count(/json_each/u),
