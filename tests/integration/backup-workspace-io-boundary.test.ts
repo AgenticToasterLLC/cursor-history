@@ -29,6 +29,7 @@ import {
   type ComposerFixtureSession,
   type SessionIntegrityFixtureRoot,
 } from '../helpers/session-integrity-fixtures.js';
+import { contractPath } from '../../src/lib/platform.js';
 import { createIoEventRecorder } from '../helpers/io-probe.js';
 
 const fixtures: SessionIntegrityFixtureRoot[] = [];
@@ -346,8 +347,16 @@ describe('workspace-scoped backup I/O boundary', () => {
     const globalOnlyWorkspaces = await listWorkspaces(undefined, backup);
     expect(globalOnlyWorkspaces).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: 'workspace-a', path: root.projectA, sessionCount: 1 }),
-        expect.objectContaining({ id: 'workspace-b', path: root.projectB, sessionCount: 1 }),
+        expect.objectContaining({
+          id: 'workspace-a',
+          path: contractPath(root.projectA),
+          sessionCount: 1,
+        }),
+        expect.objectContaining({
+          id: 'workspace-b',
+          path: contractPath(root.projectB),
+          sessionCount: 1,
+        }),
       ])
     );
     const unscoped = await listSessions({ all: true, limit: 0 }, undefined, backup);

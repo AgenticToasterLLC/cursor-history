@@ -133,6 +133,27 @@ afterEach(() => {
   }
 });
 
+/**
+ * Directory symlinks need an elevated privilege on Windows, but directory junctions do not and
+ * lstat reports both as symbolic links, which is the property these tests exercise.
+ */
+function linkDirectory(target: string, path: string): void {
+  symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir');
+}
+
+/** File symlinks need Developer Mode or elevation on Windows; report whether one was created. */
+function tryLinkFile(target: string, path: string): boolean {
+  try {
+    symlinkSync(target, path, 'file');
+    return true;
+  } catch (error) {
+    if (process.platform === 'win32' && (error as NodeJS.ErrnoException).code === 'EPERM') {
+      return false;
+    }
+    throw error;
+  }
+}
+
 describe('PrivateTempWorkspace creation and cleanup', () => {
   it('creates exact owner-private POSIX modes without changing umask or parent permissions', () => {
     const parent = createParent(0o751);
@@ -232,7 +253,7 @@ describe('PrivateTempWorkspace creation and cleanup', () => {
     writeFileSync(callerFile, 'temporary', { mode: 0o600 });
     workspace.register(callerFile);
     const linkPath = join(workspace.path, 'outside-link');
-    symlinkSync(outsideDirectory, linkPath, 'dir');
+    linkDirectory(outsideDirectory, linkPath);
     workspace.register(linkPath);
 
     expect(() => workspace.register(outsideFile)).toThrow(TypeError);
@@ -252,7 +273,7 @@ describe('PrivateTempWorkspace creation and cleanup', () => {
     const workspace = createPrivateTempWorkspace({ prefix: 'intermediate-', parent });
     const unexpectedDirectory = join(workspace.path, 'unexpected-directory');
     mkdirSync(unexpectedDirectory, { mode: 0o700 });
-    symlinkSync(outsideDirectory, join(unexpectedDirectory, 'outside-link'), 'dir');
+    linkDirectory(outsideDirectory, join(unexpectedDirectory, 'outside-link'));
 
     expect(() => workspace.dispose()).toThrow(TemporaryArtifactCleanupError);
     expect(readFileSync(outsideFile, 'utf8')).toBe('keep');
@@ -380,7 +401,7 @@ describe('conservative stale workspace recovery', () => {
     const targetSentinel = join(symlinkTarget, 'sentinel.txt');
     writeFileSync(targetSentinel, 'untouched');
     const symlinkCandidate = join(parent, `${prefix}symlink`);
-    symlinkSync(symlinkTarget, symlinkCandidate, 'dir');
+    linkDirectory(symlinkTarget, symlinkCandidate);
 
     const markerSymlinkCandidate = join(parent, `${prefix}marker-symlink`);
     mkdirSync(markerSymlinkCandidate, { mode: 0o700 });
@@ -392,7 +413,10 @@ describe('conservative stale workspace recovery', () => {
       makeMarker({ processStartToken: 'external-marker-token' })
     );
     const externalMarker = join(externalMarkerDirectory, PRIVATE_TEMP_MARKER_FILENAME);
-    symlinkSync(externalMarker, join(markerSymlinkCandidate, PRIVATE_TEMP_MARKER_FILENAME), 'file');
+    const markerSymlinkCreated = tryLinkFile(
+      externalMarker,
+      join(markerSymlinkCandidate, PRIVATE_TEMP_MARKER_FILENAME)
+    );
 
     const unrelated = join(parent, 'recoveryX-unrelated');
     mkdirSync(unrelated, { mode: 0o700 });
@@ -406,12 +430,16 @@ describe('conservative stale workspace recovery', () => {
       expect(retained.get(malformed)).toBe('invalid-marker');
       expect(retained.get(wrongMarkerOwner)).toMatch(/marker|invalid/u);
       expect(retained.get(symlinkCandidate)).toBe('candidate-symlink');
+      // Without the privilege to create the marker symlink the candidate has no marker at all,
+      // which is also retained as an invalid marker.
       expect(retained.get(markerSymlinkCandidate)).toBe('invalid-marker');
       expect(retained.has(unrelated)).toBe(false);
       expect(lstatSync(symlinkCandidate).isSymbolicLink()).toBe(true);
-      expect(
-        lstatSync(join(markerSymlinkCandidate, PRIVATE_TEMP_MARKER_FILENAME)).isSymbolicLink()
-      ).toBe(true);
+      if (markerSymlinkCreated) {
+        expect(
+          lstatSync(join(markerSymlinkCandidate, PRIVATE_TEMP_MARKER_FILENAME)).isSymbolicLink()
+        ).toBe(true);
+      }
       expect(readFileSync(targetSentinel, 'utf8')).toBe('untouched');
       expect(readFileSync(externalMarker, 'utf8')).toContain('external-marker-token');
     } finally {

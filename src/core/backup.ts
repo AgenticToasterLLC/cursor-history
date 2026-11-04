@@ -42,6 +42,7 @@ import { registry } from './database/registry.js';
 import { backupDatabase, openDatabase } from './database/index.js';
 import { createPrivateTempWorkspace, type PrivateTempWorkspace } from './private-temp.js';
 import { PACKAGE_VERSION } from './package-version.generated.js';
+import { getCursorDataPath } from '../lib/platform.js';
 import {
   BoundedZipArchive,
   ZipArchiveFormatError,
@@ -537,6 +538,15 @@ function inspectGlobalComposerPayloadIds(
   }
 }
 
+/**
+ * A `file:///C:/dir` URI yields `/C:/dir` once the scheme is stripped. On Windows that is not a
+ * usable path, so drop the leading slash and use native separators. POSIX paths are untouched.
+ */
+function normalizeFileUriDrivePath(path: string): string {
+  if (process.platform !== 'win32' || !/^\/[A-Za-z]:(?:[\\/]|$)/u.test(path)) return path;
+  return path.slice(1).replace(/\//gu, '\\');
+}
+
 function decodeWorkspacePathForManifest(snapshotPath: string): string | null {
   try {
     // This is metadata, not an authorization to materialize an arbitrarily large sidecar. The
@@ -551,10 +561,11 @@ function decodeWorkspacePathForManifest(snapshotPath: string): string | null {
           ? parsed.folder
           : undefined;
     if (uri === undefined || uri.length === 0) return null;
+    const stripped = uri.replace(/^file:\/\//u, '');
     try {
-      return decodeURIComponent(uri.replace(/^file:\/\//u, ''));
+      return normalizeFileUriDrivePath(decodeURIComponent(stripped));
     } catch {
-      return uri.replace(/^file:\/\//u, '');
+      return normalizeFileUriDrivePath(stripped);
     }
   } catch {
     // Preserve the historical ability to archive missing/malformed workspace metadata. The
@@ -2175,22 +2186,16 @@ export async function listBackups(
 }
 
 // ============================================================================
-// Helper to get default Cursor data path (imported from platform)
+// Default Cursor data path
 // ============================================================================
 
+/**
+ * Resolve the default workspaceStorage root for backup and restore.
+ *
+ * Delegates to the shared platform resolver so `CURSOR_DATA_PATH` is honored. A private copy of
+ * the platform defaults previously ignored the variable, which made an environment-isolated
+ * caller silently back up (and restore into) the real per-user Cursor directory.
+ */
 function getDefaultCursorDataPath(): string {
-  const home = homedir();
-  switch (process.platform) {
-    case 'win32':
-      return join(
-        process.env['APPDATA'] ?? join(home, 'AppData', 'Roaming'),
-        'Cursor',
-        'User',
-        'workspaceStorage'
-      );
-    case 'darwin':
-      return join(home, 'Library', 'Application Support', 'Cursor', 'User', 'workspaceStorage');
-    default:
-      return join(home, '.config', 'Cursor', 'User', 'workspaceStorage');
-  }
+  return getCursorDataPath();
 }
