@@ -84,6 +84,8 @@ export {
   BackupPublishedCleanupError,
   BackupWorkspaceScopeMetadataError,
   RestoreRollbackError,
+  RestoreSafetyCopyError,
+  LiveTargetNotConfirmedError,
   TemporaryArtifactCleanupError,
   ReadContextError,
   ReadContextSourceMismatchError,

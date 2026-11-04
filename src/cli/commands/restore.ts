@@ -4,18 +4,73 @@
 
 import type { Command } from 'commander';
 import pc from 'picocolors';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { restoreBackup, validateBackup } from '../../core/backup.js';
+import { isLiveDefaultTarget } from '../../core/restore-safety.js';
 import type { RestoreProgress, RestoreResult, SourceReadLimitsOverride } from '../../core/types.js';
 import { CliError, handleError, ExitCode } from '../errors.js';
-import { expandPath, contractPath } from '../../lib/platform.js';
+import { expandPath, contractPath, getCursorDataPath } from '../../lib/platform.js';
 import { validateCliSourceLimitOverrides } from '../source-limit-option.js';
 
 interface RestoreCommandOptions {
   target?: string;
   force?: boolean;
+  yes?: boolean;
+  allowPartial?: boolean;
+  dryRun?: boolean;
   json?: boolean;
   dataPath?: string;
+}
+
+/**
+ * True when `path` looks like a Cursor `workspaceStorage` directory: it is named
+ * `workspaceStorage`, or it already contains workspace directories (each holding a
+ * `workspace.json`). Restore treats its parent as the Cursor `User` directory, so passing the
+ * `User` directory itself (or anything else) would write into the wrong place.
+ */
+export function looksLikeWorkspaceStorage(path: string): boolean {
+  if (basename(path).toLowerCase() === 'workspacestorage') return true;
+  try {
+    if (!statSync(path).isDirectory()) return false;
+    return readdirSync(path, { withFileTypes: true }).some(
+      (entry) => entry.isDirectory() && existsSync(join(path, entry.name, 'workspace.json'))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Refuse a --target/--data-path that is not a workspaceStorage directory. */
+export function assertWorkspaceStorageTarget(path: string, origin: string): void {
+  if (looksLikeWorkspaceStorage(path)) return;
+  throw new CliError(
+    `${origin} must be the Cursor "workspaceStorage" directory (for example .../Cursor/User/workspaceStorage), not "${path}". Restore uses its parent as the Cursor User directory and would write into the wrong place.`,
+    ExitCode.USAGE_ERROR
+  );
+}
+
+async function confirmLiveRestore(
+  fileCount: number,
+  target: string,
+  safetyRoot: string | undefined
+): Promise<boolean> {
+  const lines = [
+    pc.yellow('WARNING: this will overwrite your LIVE Cursor data.'),
+    `  Target:         ${contractPath(target)}`,
+    `  Files replaced: ${fileCount}`,
+    `  Safety copy:    ${safetyRoot ? contractPath(safetyRoot) : 'cursor-history cache directory'} (timestamped folder; never deleted automatically)`,
+    '  Quit Cursor completely before continuing.',
+  ];
+  console.error(lines.join('\n'));
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = await rl.question("Type 'yes' to overwrite the live Cursor data: ");
+    return answer.trim().toLowerCase() === 'yes';
+  } finally {
+    rl.close();
+  }
 }
 
 /**
@@ -64,6 +119,13 @@ function formatRestoreResultJson(result: RestoreResult): string {
       filesRestored: result.filesRestored,
       durationMs: result.durationMs,
       ...(result.warnings.length > 0 && { warnings: result.warnings }),
+      ...(result.dryRun && { dryRun: true }),
+      ...(result.blockingConditions && { blockingConditions: result.blockingConditions }),
+      ...(result.filesToReplace && { filesToReplace: result.filesToReplace.length }),
+      ...(result.safetyCopy && { safetyCopy: result.safetyCopy }),
+      ...(result.safetyCopyRoot && { safetyCopyRoot: result.safetyCopyRoot }),
+      ...(result.partial && { partial: true, skippedFiles: result.skippedFiles }),
+      ...(result.rolledBack && { rolledBack: true }),
       ...(result.error && { error: result.error }),
     },
     null,
@@ -78,11 +140,32 @@ function formatRestoreResult(result: RestoreResult): string {
   const lines: string[] = [];
 
   if (result.success) {
-    lines.push(pc.green('✓ Backup restored successfully!'));
+    lines.push(
+      result.dryRun
+        ? pc.green('✓ Dry run: restore would proceed (nothing was written)')
+        : pc.green('✓ Backup restored successfully!')
+    );
     lines.push('');
     lines.push(`  ${pc.bold('Target:')} ${contractPath(result.targetPath)}`);
     lines.push(`  ${pc.bold('Files restored:')} ${result.filesRestored}`);
     lines.push(`  ${pc.bold('Duration:')} ${formatDuration(result.durationMs)}`);
+    if (result.partial) {
+      lines.push(
+        pc.yellow(
+          `  PARTIAL RESTORE: ${result.skippedFiles?.length ?? 0} corrupt file(s) were skipped.`
+        )
+      );
+    }
+    if (result.safetyCopy) {
+      lines.push(
+        `  ${pc.bold('Safety copy:')} ${contractPath(result.safetyCopy.directory)} (${result.safetyCopy.fileCount} file(s))`
+      );
+      lines.push(
+        pc.dim(
+          '  To roll back: quit Cursor, then copy the files listed in manifest.json back into the Cursor User directory.'
+        )
+      );
+    }
 
     if (result.warnings.length > 0) {
       lines.push('');
@@ -92,10 +175,15 @@ function formatRestoreResult(result: RestoreResult): string {
       }
     }
   } else {
-    lines.push(pc.red('✗ Restore failed'));
+    lines.push(pc.red(result.dryRun ? '✗ Dry run: restore would be refused' : '✗ Restore failed'));
     lines.push('');
     if (result.error) {
       lines.push(`  ${pc.bold('Error:')} ${result.error}`);
+    }
+    if (result.safetyCopy) {
+      lines.push(
+        `  ${pc.bold('Safety copy:')} ${contractPath(result.safetyCopy.directory)} (never deleted automatically)`
+      );
     }
   }
 
@@ -117,6 +205,12 @@ export function registerRestoreCommand(program: Command): void {
       '-f, --force',
       'Overwrite validated Cursor destinations; never bypass integrity or path-safety checks'
     )
+    .option('-y, --yes', 'Confirm overwriting the live Cursor data directory without prompting')
+    .option(
+      '--allow-partial',
+      'Restore only intact entries when some fail their checksum (default: abort without writing)'
+    )
+    .option('--dry-run', 'Validate and report what would happen without writing anything')
     .action(async (backupArg: string, options: RestoreCommandOptions, command: Command) => {
       const globalOptions = command.parent?.opts() as {
         json?: boolean;
@@ -177,7 +271,13 @@ export function registerRestoreCommand(program: Command): void {
               `Warning: Backup has ${validation.corruptedFiles.length} file(s) with checksum mismatches.`
             )
           );
-          console.log(pc.dim('These files will be skipped; only intact files will be restored.\n'));
+          console.log(
+            pc.dim(
+              options.allowPartial
+                ? 'These files will be skipped; only intact files will be restored.\n'
+                : 'Restore will abort without writing. Use --allow-partial to restore only the intact files.\n'
+            )
+          );
         }
 
         // Resolve target path if provided
@@ -187,14 +287,60 @@ export function registerRestoreCommand(program: Command): void {
             ? expandPath(customPath)
             : undefined;
 
+        if (options.target) assertWorkspaceStorageTarget(targetPath!, '--target');
+        else if (customPath) assertWorkspaceStorageTarget(targetPath!, '--data-path');
+
         // Show progress if not JSON mode
         const onProgress = useJson ? undefined : displayProgress;
+        const force = options.force ?? false;
+        const allowPartial = options.allowPartial ?? false;
+        const live = force && isLiveDefaultTarget(targetPath ?? getCursorDataPath());
+        let confirmLiveTarget = false;
+
+        if (live || options.dryRun) {
+          // Preview first: blocking conditions and the number of files that would be replaced.
+          const preview = await restoreBackup({
+            backupPath,
+            targetPath,
+            force,
+            allowPartial,
+            dryRun: true,
+            confirmLiveTarget: true,
+            sourceReadLimits,
+          });
+          if (options.dryRun || !preview.success) {
+            console.log(useJson ? formatRestoreResultJson(preview) : formatRestoreResult(preview));
+            process.exit(preview.success ? 0 : ExitCode.GENERAL_ERROR);
+          }
+          if (live) {
+            if (options.yes) {
+              confirmLiveTarget = true;
+            } else if (useJson || !process.stdin.isTTY) {
+              throw new CliError(
+                'Refusing to overwrite the live Cursor data directory without confirmation. Re-run with --yes after quitting Cursor.',
+                ExitCode.USAGE_ERROR
+              );
+            } else {
+              confirmLiveTarget = await confirmLiveRestore(
+                preview.filesToReplace?.length ?? 0,
+                targetPath ?? getCursorDataPath(),
+                preview.safetyCopyRoot
+              );
+              if (!confirmLiveTarget) {
+                console.error(pc.red('Restore cancelled; nothing was changed.'));
+                process.exit(ExitCode.USAGE_ERROR);
+              }
+            }
+          }
+        }
 
         // Perform restore
         const result = await restoreBackup({
           backupPath,
           targetPath,
-          force: options.force ?? false,
+          force,
+          allowPartial,
+          confirmLiveTarget,
           sourceReadLimits,
           onProgress,
         });

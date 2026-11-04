@@ -43,6 +43,8 @@ export type {
   RestoreConfig,
   RestoreProgress,
   RestoreResult,
+  RestoreBlockingCondition,
+  RestoreSafetyCopyInfo,
   BackupValidation,
   BackupInfo,
   // SQLite driver type
@@ -181,6 +183,8 @@ export {
   BackupPublishedCleanupError,
   BackupWorkspaceScopeMetadataError,
   RestoreRollbackError,
+  RestoreSafetyCopyError,
+  LiveTargetNotConfirmedError,
   TemporaryArtifactCleanupError,
   ReadContextError,
   ReadContextSourceMismatchError,

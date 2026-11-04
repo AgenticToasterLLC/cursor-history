@@ -65,7 +65,9 @@ import {
 } from './composer-sqlite.js';
 import { IoObserverError, type OperationIoContext } from './io-observer.js';
 import {
+  LiveTargetNotConfirmedError,
   RestoreRollbackError,
+  RestoreSafetyCopyError,
   SourceLimitConfigurationError,
   SourceLimitExceededError,
   TemporaryArtifactCleanupError,
@@ -76,6 +78,17 @@ import {
 } from './backup-publication.js';
 import { publishBackupArchiveStage } from './backup-archive-publication.js';
 import { commitRestorePublication } from './restore-publication.js';
+import {
+  createRestoreSafetyCopy,
+  existingCompanions,
+  isLiveDefaultTarget,
+  moveCompanionsAside,
+  removeAsideFiles,
+  resolveRestoreSafetyRoot,
+  rollbackFromSafetyCopy,
+  type CreatedRestoreSafetyCopy,
+} from './restore-safety.js';
+import { assertCursorNotRunning, CursorRunningError, ProtectedPathError } from './write-guard.js';
 import {
   groupSessionIdSpellings,
   logicalSessionIdKey,
@@ -90,8 +103,10 @@ import type {
   BackupStats,
   BackupConfig,
   BackupResult,
+  RestoreBlockingCondition,
   RestoreConfig,
   RestoreResult,
+  RestoreSafetyCopyInfo,
   BackupValidation,
   BackupInfo,
   SourceReadOptions,
@@ -1877,7 +1892,8 @@ function publishRestoreFile(
   destinationPath: string,
   replaceExisting: boolean,
   onCommit?: (identity: PublishedArchiveIdentity) => void,
-  mode = 0o600
+  mode = 0o600,
+  beforeCommit?: () => void
 ): void {
   assertNoLinkedRestorePath(trustedRoot, dirname(destinationPath), 'directory');
   assertNoLinkedRestorePath(trustedRoot, destinationPath, 'file');
@@ -1917,6 +1933,10 @@ function publishRestoreFile(
     // owner-controlled-tree limitation is documented on the public restore contract.
     assertNoLinkedRestorePath(trustedRoot, dirname(destinationPath), 'directory');
     assertNoLinkedRestorePath(trustedRoot, destinationPath, 'file');
+    // Database callers move the old -wal/-shm/-journal aside here: strictly after the complete new
+    // inode is durable and strictly before it replaces the database, so the new file is never
+    // adjacent to the old WAL.
+    beforeCommit?.();
     commitRestorePublication(
       publicationPath,
       destinationPath,
@@ -1960,12 +1980,26 @@ function publishRestoreFile(
 
 /**
  * T040-T045: Restore backup to Cursor data directory
+ *
+ * Sequence (nothing before step 6 modifies Cursor data):
+ * 1. Refuse `force` into the platform-default (live) directory without `confirmLiveTarget`.
+ * 2. Validate the archive; abort on any checksum failure unless `allowPartial`.
+ * 3. Plan destinations (link/escape checks) and refuse existing data without `force`.
+ * 4. Refuse while Cursor appears to be running (`dryRun` reports it instead of throwing).
+ * 5. Copy every replaced file and every `-wal`/`-shm`/`-journal` to the restore-safety directory,
+ *    verify size + sha256 and write its manifest. Any failure aborts here.
+ * 6. Create directories, re-verify the target set, then publish each file; for databases the old
+ *    WAL/SHM are renamed aside after the new file is staged and before it is renamed into place,
+ *    then deleted.
+ * 7. On failure, return every file to the safety copy; only an incomplete rollback throws.
  */
 export async function restoreBackup(config: RestoreConfig): Promise<RestoreResult> {
   const startTime = Date.now();
   const backupPath = config.backupPath;
   const targetPath = config.targetPath ?? getDefaultCursorDataPath();
   const force = config.force ?? false;
+  const dryRun = config.dryRun ?? false;
+  const allowPartial = config.allowPartial ?? false;
   const onProgress = config.onProgress;
   const readOptions = freezeSourceReadOptions({
     sourceReadLimits: config.sourceReadLimits,
@@ -1973,6 +2007,13 @@ export async function restoreBackup(config: RestoreConfig): Promise<RestoreResul
   });
   const signal = readOptions.signal;
   throwIfAborted(signal);
+
+  const blocking: RestoreBlockingCondition[] = [];
+  if (force && !config.confirmLiveTarget && isLiveDefaultTarget(targetPath)) {
+    const liveError = new LiveTargetNotConfirmedError(targetPath);
+    if (!dryRun) throw liveError;
+    blocking.push({ code: 'LIVE_TARGET_NOT_CONFIRMED', message: liveError.message });
+  }
 
   // Phase: Validating
   onProgress?.({
@@ -1987,6 +2028,13 @@ export async function restoreBackup(config: RestoreConfig): Promise<RestoreResul
     prefix: 'cursor-history-restore-',
   });
   const restoredFiles: Array<{ manifestPath: string }> = [];
+  const createdFiles: string[] = [];
+  const restoreId = randomUUID().slice(0, 8);
+  const asideFiles: string[] = [];
+  let safetyCopy: CreatedRestoreSafetyCopy | undefined;
+  let userDirForRollback: string | undefined;
+  let restorePlanForRollback: readonly PlannedRestoreFile[] = [];
+  let publishStarted = false;
   let operationError: unknown;
   try {
     const inspection = await withBoundedArchive(backupPath, readOptions, (archive) =>
@@ -2007,16 +2055,92 @@ export async function restoreBackup(config: RestoreConfig): Promise<RestoreResul
 
     const manifest = validation.manifest!;
     const userDir = resolve(dirname(targetPath));
+    userDirForRollback = userDir;
+    const corruptedEntries = validation.corruptedFiles;
+
+    if (corruptedEntries.length > 0 && !allowPartial) {
+      const message = `Backup integrity check failed: ${corruptedEntries.length} file(s) failed the size or checksum comparison (${corruptedEntries.join(', ')}). No files were written. Pass allowPartial to restore only the intact files.`;
+      if (!dryRun) {
+        return {
+          success: false,
+          targetPath,
+          filesRestored: 0,
+          warnings: [],
+          durationMs: Date.now() - startTime,
+          error: message,
+        };
+      }
+      blocking.push({ code: 'CHECKSUM_MISMATCH', message });
+    }
+
     const restorePlan = planRestoreFiles(userDir, inspection.stagedFiles);
+    restorePlanForRollback = restorePlan;
     const existingDestinations = existingRestoreDestinations(restorePlan);
     if (!force && existingDestinations.length > 0) {
+      const message = `Target already has Cursor data at: ${existingDestinations.join(', ')}. Use --force to overwrite.`;
+      if (!dryRun) {
+        return {
+          success: false,
+          targetPath,
+          filesRestored: 0,
+          warnings: [],
+          durationMs: Date.now() - startTime,
+          error: message,
+        };
+      }
+      blocking.push({ code: 'TARGET_EXISTS', message });
+    }
+
+    // Refuse while Cursor appears to be running, before any directory is created or file written.
+    const databasePlans = restorePlan.filter(
+      ({ manifestEntry }) =>
+        manifestEntry.type === 'global-db' || manifestEntry.type === 'workspace-db'
+    );
+    try {
+      assertCursorNotRunning(
+        'restore',
+        databasePlans.map(({ destinationPath }) => destinationPath)
+      );
+    } catch (error) {
+      if (!dryRun || !(error instanceof CursorRunningError)) throw error;
+      blocking.push({ code: 'CURSOR_RUNNING', message: error.message });
+    }
+
+    // Everything restore will replace or must neutralise: existing destinations plus any
+    // -wal/-shm/-journal next to a database (even one whose main file is absent).
+    const safetySources = (): string[] => {
+      const sources = new Set<string>();
+      for (const planned of restorePlan) {
+        if (assertNoLinkedRestorePath(planned.trustedRoot, planned.destinationPath, 'file')) {
+          sources.add(planned.destinationPath);
+        }
+      }
+      for (const planned of databasePlans) {
+        for (const companion of existingCompanions(planned.destinationPath)) sources.add(companion);
+      }
+      return [...sources];
+    };
+    const plannedSources = safetySources();
+    const skippedFiles = allowPartial ? corruptedEntries : [];
+    const warnings = skippedFiles.map(
+      (file) => `Integrity mismatch (size or checksum); skipped: ${file}`
+    );
+
+    if (dryRun) {
       return {
-        success: false,
+        success: blocking.length === 0,
+        dryRun: true,
         targetPath,
         filesRestored: 0,
-        warnings: [],
+        warnings,
         durationMs: Date.now() - startTime,
-        error: `Target already has Cursor data at: ${existingDestinations.join(', ')}. Use --force to overwrite.`,
+        blockingConditions: blocking,
+        filesToReplace: existingDestinations,
+        ...(plannedSources.length > 0
+          ? { safetyCopyRoot: resolveRestoreSafetyRoot(config.safetyCopyDir, targetPath) }
+          : {}),
+        ...(skippedFiles.length > 0 ? { partial: true, skippedFiles } : {}),
+        ...(blocking.length > 0 ? { error: blocking.map(({ message }) => message).join(' ') } : {}),
       };
     }
 
@@ -2029,9 +2153,12 @@ export async function restoreBackup(config: RestoreConfig): Promise<RestoreResul
     });
     throwIfAborted(signal);
 
-    const warnings = validation.corruptedFiles.map(
-      (file) => `Integrity mismatch (size or checksum); skipped: ${file}`
-    );
+    // Verified safety copy of everything that will be replaced; any failure aborts untouched.
+    if (plannedSources.length > 0) {
+      const safetyRoot = resolveRestoreSafetyRoot(config.safetyCopyDir, targetPath);
+      safetyCopy = createRestoreSafetyCopy(userDir, plannedSources, safetyRoot);
+    }
+    throwIfAborted(signal);
 
     // Create every required directory and then revalidate the complete target set before the first
     // file publication. This makes a late-path collision or static link fail with zero file writes.
@@ -2047,7 +2174,16 @@ export async function restoreBackup(config: RestoreConfig): Promise<RestoreResul
         `Target already has Cursor data at: ${postCreationDestinations.join(', ')}. Use --force to overwrite.`
       );
     }
+    // Anything that appeared after the safety copy was taken has no backup: abort untouched.
+    const copied = new Set((safetyCopy?.entries ?? []).map(({ path }) => path));
+    for (const source of safetySources()) {
+      const rel = relative(userDir, source).split(sep).join('/');
+      if (!copied.has(rel)) {
+        throw new RestoreSafetyCopyError('target-changed', safetyCopy?.directory);
+      }
+    }
 
+    publishStarted = true;
     for (let index = 0; index < restorePlan.length; index++) {
       throwIfAborted(signal);
       const staged = restorePlan[index]!;
@@ -2077,6 +2213,9 @@ export async function restoreBackup(config: RestoreConfig): Promise<RestoreResul
         );
       }
       throwIfAborted(signal);
+      const isDatabase =
+        staged.manifestEntry.type === 'global-db' || staged.manifestEntry.type === 'workspace-db';
+      const movedAside: string[] = [];
       publishRestoreFile(
         staged.trustedRoot,
         staged.temporaryPath,
@@ -2084,8 +2223,21 @@ export async function restoreBackup(config: RestoreConfig): Promise<RestoreResul
         force,
         () => {
           restoredFiles.push({ manifestPath: staged.manifestEntry.path });
-        }
+          if (!destinationExists) createdFiles.push(staged.manifestEntry.path);
+        },
+        undefined,
+        isDatabase
+          ? () => {
+              for (const moved of moveCompanionsAside(staged.destinationPath, restoreId)) {
+                movedAside.push(moved.aside);
+                asideFiles.push(moved.aside);
+              }
+            }
+          : undefined
       );
+      for (const leftover of removeAsideFiles(movedAside)) {
+        warnings.push(`Could not remove superseded WAL/SHM file: ${leftover}`);
+      }
     }
 
     // Phase: Finalizing
@@ -2103,40 +2255,95 @@ export async function restoreBackup(config: RestoreConfig): Promise<RestoreResul
       filesRestored: restoredFiles.length,
       warnings,
       durationMs: Date.now() - startTime,
+      filesToReplace: existingDestinations,
+      ...(safetyCopy ? { safetyCopy: describeSafetyCopy(safetyCopy) } : {}),
+      ...(skippedFiles.length > 0 ? { partial: true, skippedFiles } : {}),
     };
   } catch (error) {
     operationError = error;
     // Portable Node filesystem APIs cannot atomically prove that a pathname still names the inode
-    // published above and then replace or unlink that same directory entry. A check followed by a
-    // mutation therefore has an unavoidable leaf TOCTOU window. Once any entry has crossed its
-    // publication commit point, fail closed: leave every destination pathname untouched, report
-    // every published entry as residual, and let the owner-private workspace cleanup run in the
-    // outer finally block.
-    if (restoredFiles.length > 0) {
+    // published above, so rollback never trusts a pathname it merely observed: it returns files to
+    // the content of the verified safety copy (hash-compared, then staged and renamed) and reports
+    // anything it could not return. Newly created files have no prior content, so they are left in
+    // place and reported as residual. The owner-private workspace is cleaned in the outer finally.
+    let rollbackFailures: string[] = [];
+    if (publishStarted && safetyCopy && userDirForRollback) {
+      const publishedHashes = new Map(
+        restorePlanForRollback.map((planned) => [
+          relative(userDirForRollback!, planned.destinationPath).split(sep).join('/'),
+          planned.manifestEntry.checksum.replace(/^sha256:/u, ''),
+        ])
+      );
+      rollbackFailures = rollbackFromSafetyCopy(
+        userDirForRollback,
+        safetyCopy,
+        restoreId,
+        publishedHashes
+      );
+      if (rollbackFailures.length === 0) removeAsideFiles(asideFiles);
+    }
+    if (
+      restoredFiles.length > 0 &&
+      (!safetyCopy || rollbackFailures.length > 0 || createdFiles.length > 0)
+    ) {
       const restoreError = new RestoreRollbackError(
         restoredFiles.length,
-        restoredFiles.map(({ manifestPath }) => manifestPath),
-        error
+        safetyCopy
+          ? [...rollbackFailures, ...createdFiles]
+          : restoredFiles.map(({ manifestPath }) => manifestPath),
+        error,
+        [],
+        safetyCopy ? { safetyCopyDir: safetyCopy.directory, rollbackFailures } : undefined
+      );
+      operationError = restoreError;
+      throw restoreError;
+    }
+    if (rollbackFailures.length > 0) {
+      const restoreError = new RestoreRollbackError(
+        restoredFiles.length,
+        rollbackFailures,
+        error,
+        [],
+        { safetyCopyDir: safetyCopy!.directory, rollbackFailures }
       );
       operationError = restoreError;
       throw restoreError;
     }
 
     if (shouldPropagateBoundedReadError(error)) throw error;
+    if (
+      error instanceof CursorRunningError ||
+      error instanceof ProtectedPathError ||
+      error instanceof RestoreSafetyCopyError ||
+      error instanceof LiveTargetNotConfirmedError
+    ) {
+      throw error;
+    }
 
+    const rolledBack = publishStarted && safetyCopy !== undefined;
     return {
       success: false,
       targetPath,
       filesRestored: 0,
       warnings: [],
       durationMs: Date.now() - startTime,
-      error: `${errorCode(error) === 'ENOENT' ? 'Backup file not found' : 'Restore failed'}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      ...(rolledBack ? { rolledBack: true } : {}),
+      ...(safetyCopy ? { safetyCopy: describeSafetyCopy(safetyCopy) } : {}),
+      error: `${errorCode(error) === 'ENOENT' ? 'Backup file not found' : 'Restore failed'}${
+        rolledBack ? ' (all replaced files were rolled back from the safety copy)' : ''
+      }: ${error instanceof Error ? error.message : String(error)}`,
     };
   } finally {
     disposePrivateWorkspace(workspace, operationError);
   }
+}
+
+function describeSafetyCopy(copy: CreatedRestoreSafetyCopy): RestoreSafetyCopyInfo {
+  return {
+    directory: copy.directory,
+    manifestPath: copy.manifestPath,
+    fileCount: copy.entries.length,
+  };
 }
 
 // ============================================================================

@@ -37,7 +37,8 @@ export type GuardedWritePurpose =
   | 'training-output'
   | 'catalog'
   | 'audit-log'
-  | 'migrate-safety';
+  | 'migrate-safety'
+  | 'restore-safety';
 
 /**
  * Refuses a caller-chosen write target inside Cursor's data, or named like a
