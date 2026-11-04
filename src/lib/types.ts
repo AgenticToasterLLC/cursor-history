@@ -397,6 +397,24 @@ export interface LibraryConfig {
   /** Immutable per-operation Source Read Limits v1 overrides. */
   sourceReadLimits?: SourceReadLimitsOverride;
 
+  /**
+   * Receive content-free performance diagnostics (phase, SQL statement and
+   * database-open timings).
+   *
+   * Events never contain parameter values, row values, keys, paths, titles or
+   * message text; SQL is reported only as a literal-stripped shape plus a
+   * 12-character fingerprint. Exceptions thrown by the sink are ignored and
+   * cannot affect read results. When omitted there is no timing overhead.
+   * Only honored when the read context is created from this config (not when
+   * reusing `readContext`).
+   *
+   * @example
+   * const profile = createProfileCollector();
+   * await listSessions({ diagnostics: profile });
+   * console.error(JSON.stringify(profile.toJSON()));
+   */
+  diagnostics?: import('../core/diagnostics.js').DiagnosticsSink;
+
   /** Reuse an explicitly bound opaque read context. */
   readContext?: SessionReadContext;
 

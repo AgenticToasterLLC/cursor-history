@@ -110,6 +110,12 @@ import {
   type WorkspaceScopeResult,
 } from './workspace-scope.js';
 import {
+  createPhaseSequence,
+  getProcessDiagnosticsSink,
+  withPhase,
+  type DiagnosticsSink,
+} from './diagnostics.js';
+import {
   createOperationIoContext,
   IoObserverError,
   observeAdapterIo,
@@ -143,6 +149,8 @@ export interface StorageReadOperationOptions {
   readonly ioObserver?: AdapterIoObserver;
   /** Immutable operation context inherited by nested adapters. */
   readonly io?: OperationIoContext;
+  /** Content-free timing sink attached to the context's I/O boundary (ignored if `io` is given). */
+  readonly diagnostics?: DiagnosticsSink;
   /** Reviewed default classification for an opened SQLite source. */
   readonly ioResource?: DatabaseOperationRequest['ioResource'];
   /** Full normalized Composer workspace selected before payload discovery. */
@@ -2658,6 +2666,7 @@ export function createSessionReadContext(
   // Validate caller policy and cancellation before any later source I/O.
   const sourceReadLimits = resolveSourceReadLimits(options.sourceReadLimits);
   throwIfReadAborted(options.signal);
+  const diagnostics = options.diagnostics ?? getProcessDiagnosticsSink();
   const io =
     options.io ??
     createOperationIoContext({
@@ -2666,6 +2675,7 @@ export function createSessionReadContext(
       sourceReadLimits,
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.ioObserver ? { emit: options.ioObserver } : {}),
+      ...(diagnostics ? { diagnostics } : {}),
     });
   const activeResolutions = new Map<string, Promise<ChatSession | null>>();
   const completedSessions = new Map<string, ChatSession | null>();
@@ -3960,6 +3970,8 @@ export async function listSessions(
   assertContextSource(context, customDataPath, backupPath);
   bindContextWorkspaceScope(context, options.workspacePath);
   assertContextReadOptions(context, options);
+  const diagPhases = createPhaseSequence(context.io.diagnostics);
+  diagPhases.next('A:store-discovery'); // diag:phase A:store-discovery
 
   let workspaceScopeResult: WorkspaceScopeResult | undefined;
   let activeWorkspacePath: string | undefined;
@@ -3967,6 +3979,7 @@ export async function listSessions(
   const storeCatalogSessions = backupPath
     ? []
     : await getStoreSessionsCached(context, customDataPath, backupPath);
+  diagPhases.next('scope-resolution'); // diag:phase scope-resolution
   if (options.workspacePath) {
     composerWorkspaceInventory = await findComposerWorkspaceInventory(
       customDataPath,
@@ -4008,6 +4021,7 @@ export async function listSessions(
   }
 
   // T029: Support reading from backup
+  diagPhases.next('B:find-workspaces'); // diag:phase B:find-workspaces
   const workspaces = await getWorkspacesCached(
     context,
     customDataPath,
@@ -4167,6 +4181,8 @@ export async function listSessions(
     return true;
   };
 
+  // counters (2nd arg) describe the phase being closed (B)
+  diagPhases.next('C:workspace-loop', () => ({ workspacesFound: workspaces.length })); // diag:phase C:workspace-loop
   for (const workspace of filteredWorkspaces) {
     throwIfReadAborted(options.signal ?? context?.signal);
     let workspaceDb: Database | null = null;
@@ -4326,6 +4342,10 @@ export async function listSessions(
     }
   }
 
+  // counters describe the phase being closed (C)
+  diagPhases.next("C':off-scope-workspaces", () => ({
+    workspacesOpened: filteredWorkspaces.length,
+  })); // diag:phase C':off-scope-workspaces
   // Workspace scope may inspect UUID-only catalog metadata outside the
   // selected path. Payload hydration remains forbidden unless the caller opts
   // in, and even then is restricted to UUIDs already admitted in scope.
@@ -4450,6 +4470,7 @@ export async function listSessions(
     }
   }
 
+  diagPhases.next('D:global-db'); // diag:phase D:global-db
   if (
     !backupPath &&
     (globalFallbackCandidates.length > 0 || !activeWorkspacePath || selectedStoreIds.size > 0)
@@ -4827,6 +4848,7 @@ export async function listSessions(
   // rows and (b) a conversation carrier of last resort. Some Cursor versions
   // create global Composer records without any workspace row or pointer, so a
   // candidate-only pass would make those sessions disappear from the archive.
+  diagPhases.next('E:backup-global'); // diag:phase E:backup-global
   if (backupPath && !activeWorkspacePath) {
     let backupGlobalDb: Database | null = null;
     let backupGlobalReadError: unknown;
@@ -4979,6 +5001,7 @@ export async function listSessions(
   // that order before replica reconciliation reshapes the physical rows. This
   // keeps existing Composer numeric addresses compatible without making the
   // order of newly introduced Store-only rows depend on physical discovery.
+  diagPhases.next('F:merge-sort'); // diag:phase F:merge-sort
   const v016ComposerDiscoveryOrder = new Map<string, number>();
   for (const summary of allSessions) {
     const logicalId = logicalSessionIdKey(summary.id);
@@ -5313,6 +5336,7 @@ export async function listSessions(
     context.logicalSummaries = indexedLogicalRows.map(({ row }) => row);
   }
 
+  diagPhases.end(() => ({ rows: allSessions.length })); // diag:phase end
   return applySessionListLimit(allSessions, options);
 }
 
@@ -5632,19 +5656,25 @@ async function resolveFinalSession(
     summary.source === 'store-complete' ||
     summary.source === 'store-partial'
   ) {
-    const storeSession = (
-      await getStoreSessionsCached(
-        context,
-        customDataPath,
-        backupPath,
-        new Set([summary.id]),
-        'payload'
-      )
-    ).find((s) => sessionIdsEqual(s.id, summary.id));
+    const storeSession = // diag:phase getSession/hydrate
+      (
+        await withPhase(context.io.diagnostics, 'getSession/hydrate', () =>
+          getStoreSessionsCached(
+            context,
+            customDataPath,
+            backupPath,
+            new Set([summary.id]),
+            'payload'
+          )
+        )
+      ).find((s) => sessionIdsEqual(s.id, summary.id));
     resolved = storeSession ? mapStoreSession(storeSession, index) : null;
   } else {
     // Composer stack: global storage (full bubbles) with workspace fallback.
-    resolved = await loadComposerSession(summary, index, customDataPath, backupPath, context);
+    // diag:phase getSession/hydrate
+    resolved = await withPhase(context.io.diagnostics, 'getSession/hydrate', () =>
+      loadComposerSession(summary, index, customDataPath, backupPath, context)
+    );
   }
   if (!resolved) return null;
   return projectSessionAddressing(resolved, summary);
@@ -6218,16 +6248,15 @@ export async function searchSessions(
         continue;
       }
       try {
-        const session = await getSession(
-          summary.id,
-          customDataPath,
-          backupPath,
-          context,
-          summary.index
+        // diag:phase search:session-loop
+        const session = await withPhase(context.io.diagnostics, 'search:session-loop', () =>
+          getSession(summary.id, customDataPath, backupPath, context, summary.index)
         );
         if (!session) continue;
 
-        const snippets = getSearchSnippets(session.messages, query, options.contextChars);
+        const snippets = withPhase(context.io.diagnostics, 'search:snippets', () =>
+          getSearchSnippets(session.messages, query, options.contextChars)
+        ); // diag:phase search:snippets
 
         if (snippets.length > 0) {
           const matchCount = snippets.reduce((sum, s) => sum + s.matchPositions.length, 0);

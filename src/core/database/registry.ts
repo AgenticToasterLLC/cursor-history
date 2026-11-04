@@ -251,7 +251,12 @@ class DriverRegistry {
     request: DatabaseOperationRequest = MIGRATION_REQUEST
   ): Promise<Database> {
     const driver = await this.ensureDriver(request);
-    return openObservedDatabase(request.io, request, () => driver.open(path, { readonly: false }));
+    return openObservedDatabase(
+      request.io,
+      request,
+      () => driver.open(path, { readonly: false }),
+      false
+    );
   }
 
   /**
