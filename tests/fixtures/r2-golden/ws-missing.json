@@ -7,6 +7,12 @@
         "limit": 9007199254740991,
         "offset": 0,
         "hasMore": false
+      },
+      "scope": {
+        "state": "not-found",
+        "requested": "<ROOT>/nope",
+        "normalizedRequest": "<ROOT>/nope",
+        "suggestions": []
       }
     }
   },
@@ -18,6 +24,12 @@
         "limit": 9007199254740991,
         "offset": 0,
         "hasMore": false
+      },
+      "scope": {
+        "state": "not-found",
+        "requested": "<ROOT>/nope",
+        "normalizedRequest": "<ROOT>/nope",
+        "suggestions": []
       }
     }
   },

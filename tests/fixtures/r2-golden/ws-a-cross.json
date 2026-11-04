@@ -197,6 +197,12 @@
         "limit": 9007199254740991,
         "offset": 0,
         "hasMore": false
+      },
+      "scope": {
+        "state": "matched",
+        "requested": "<ROOT>/workspaces/a",
+        "path": "<ROOT>/workspaces/a",
+        "matchKind": "exact"
       }
     }
   },
@@ -473,6 +479,12 @@
         "limit": 9007199254740991,
         "offset": 0,
         "hasMore": false
+      },
+      "scope": {
+        "state": "matched",
+        "requested": "<ROOT>/workspaces/a",
+        "path": "<ROOT>/workspaces/a",
+        "matchKind": "exact"
       }
     }
   },
