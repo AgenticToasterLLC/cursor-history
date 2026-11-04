@@ -5,6 +5,7 @@
  */
 
 import type {
+  ComposerReadCapabilities,
   Database,
   DatabaseCapability,
   DatabaseCapabilityProfile,
@@ -133,12 +134,29 @@ class BetterSqlite3Statement implements Statement {
  * This is a connection-scoped setting. Failure is non-fatal: reads stay correct
  * but may fall back to a scan, so opening must never throw because of it.
  */
-function applyCaseSensitiveLike(db: import('better-sqlite3').Database): void {
+function applyCaseSensitiveLike(db: import('better-sqlite3').Database): boolean {
   try {
     db.pragma('case_sensitive_like = ON');
+    return true;
   } catch (error) {
     debugLog(`better-sqlite3 could not enable case_sensitive_like: ${String(error)}`);
+    return false;
   }
+}
+
+function detectCapabilities(
+  db: import('better-sqlite3').Database,
+  byteExactLike: boolean
+): ComposerReadCapabilities {
+  let octetLength = false;
+  try {
+    const row = db.prepare("SELECT octet_length(x'0001') AS n").get() as
+      { n?: unknown } | undefined;
+    octetLength = Number(row?.n) === 2;
+  } catch {
+    octetLength = false;
+  }
+  return { octetLength, byteExactLike };
 }
 
 /**
@@ -146,9 +164,11 @@ function applyCaseSensitiveLike(db: import('better-sqlite3').Database): void {
  */
 class BetterSqlite3Database implements Database {
   private nativeDb: import('better-sqlite3').Database;
+  readonly composerReadCapabilities: ComposerReadCapabilities;
 
-  constructor(db: import('better-sqlite3').Database) {
+  constructor(db: import('better-sqlite3').Database, capabilities: ComposerReadCapabilities) {
     this.nativeDb = db;
+    this.composerReadCapabilities = capabilities;
   }
 
   prepare(sql: string): Statement {
@@ -190,9 +210,9 @@ export const betterSqlite3Driver: DatabaseDriver = {
       throw new Error('better-sqlite3 is not loaded. Call isAvailable() first.');
     }
     const db = new BetterSqlite3(path, { readonly: options.readonly });
-    applyCaseSensitiveLike(db);
+    const byteExactLike = applyCaseSensitiveLike(db);
     debugLog(`Opened database with better-sqlite3: ${path} (readonly: ${options.readonly})`);
-    return new BetterSqlite3Database(db);
+    return new BetterSqlite3Database(db, detectCapabilities(db, byteExactLike));
   },
 
   async backup(sourcePath: string, destPath: string): Promise<void> {

@@ -9,6 +9,7 @@
  */
 
 import type {
+  ComposerReadCapabilities,
   Database,
   DatabaseCapability,
   DatabaseCapabilityProfile,
@@ -205,16 +206,33 @@ class NodeSqliteStatementWrapper implements Statement {
  * This is a connection-scoped setting. Failure is non-fatal: reads stay correct
  * but may fall back to a scan, so opening must never throw because of it.
  */
-function applyCaseSensitiveLike(db: NodeSqliteDatabase): void {
+function applyCaseSensitiveLike(db: NodeSqliteDatabase): boolean {
   try {
     if (typeof db.exec === 'function') {
       db.exec('PRAGMA case_sensitive_like = ON');
     } else {
       db.prepare('PRAGMA case_sensitive_like = ON').run();
     }
+    return true;
   } catch (error) {
     debugLog(`node:sqlite could not enable case_sensitive_like: ${String(error)}`);
+    return false;
   }
+}
+
+function detectCapabilities(
+  db: NodeSqliteDatabase,
+  byteExactLike: boolean
+): ComposerReadCapabilities {
+  let octetLength = false;
+  try {
+    const row = db.prepare("SELECT octet_length(x'0001') AS n").get() as
+      { n?: unknown } | undefined;
+    octetLength = Number(row?.n) === 2;
+  } catch {
+    octetLength = false;
+  }
+  return { octetLength, byteExactLike };
 }
 
 /**
@@ -226,10 +244,12 @@ function applyCaseSensitiveLike(db: NodeSqliteDatabase): void {
 class NodeSqliteDatabaseWrapper implements Database {
   private nativeDb: NodeSqliteDatabase;
   private isReadonly: boolean;
+  readonly composerReadCapabilities: ComposerReadCapabilities;
 
-  constructor(db: NodeSqliteDatabase, readonly: boolean) {
+  constructor(db: NodeSqliteDatabase, readonly: boolean, capabilities: ComposerReadCapabilities) {
     this.nativeDb = db;
     this.isReadonly = readonly;
+    this.composerReadCapabilities = capabilities;
   }
 
   prepare(sql: string): Statement {
@@ -296,9 +316,13 @@ export const nodeSqliteDriver: DatabaseDriver = {
       throw new Error('node:sqlite is not loaded. Call isAvailable() first.');
     }
     const db = new nodeSqliteModule.DatabaseSync(path, { readOnly: options.readonly });
-    applyCaseSensitiveLike(db);
+    const byteExactLike = applyCaseSensitiveLike(db);
     debugLog(`Opened database with node:sqlite: ${path} (readonly: ${options.readonly})`);
-    return new NodeSqliteDatabaseWrapper(db, options.readonly);
+    return new NodeSqliteDatabaseWrapper(
+      db,
+      options.readonly,
+      detectCapabilities(db, byteExactLike)
+    );
   },
 
   async backup(sourcePath: string, destPath: string): Promise<void> {

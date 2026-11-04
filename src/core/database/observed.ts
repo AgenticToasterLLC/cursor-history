@@ -26,6 +26,7 @@ function selectsRawPayload(sql: string): boolean {
   // Declared byte lengths are catalog metadata: the engine evaluates value
   // length without returning the raw bytes across the adapter boundary.
   const withoutMetadataPreflights = projection
+    .replace(/\boctet_length\s*\(\s*(?:value|data)\s*\)/giu, '')
     .replace(/\blength\s*\(\s*cast\s*\(\s*(?:value|data)\s+as\s+blob\s*\)\s*\)/giu, '')
     .replace(/\b(?:value|data)\s+is\s+(?:not\s+)?null(?:\s+as\s+\w+)?/giu, '');
   return /\b(?:value|data)\b/iu.test(withoutMetadataPreflights);
@@ -196,6 +197,10 @@ class ObservedDatabase implements Database {
     request: DatabaseOperationRequest
   ) {
     this.fallback = requestIdentity(request);
+  }
+
+  get composerReadCapabilities(): Database['composerReadCapabilities'] {
+    return this.inner.composerReadCapabilities;
   }
 
   prepare(sql: string): Statement {
