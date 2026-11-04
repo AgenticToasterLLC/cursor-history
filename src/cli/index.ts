@@ -8,6 +8,12 @@ import { Command, CommanderError } from 'commander';
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+import { writeSync } from 'node:fs';
+import {
+  createProfileCollector,
+  setProcessDiagnosticsSink,
+  type ProfileCollector,
+} from '../core/diagnostics.js';
 import { CliError, handleError, ExitCode } from './errors.js';
 import { parseSourceLimitOption, validateCliSourceLimitArguments } from './source-limit-option.js';
 
@@ -131,6 +137,10 @@ program
   .option('--json', 'Write successful structured results to stdout and fatal JSON to stderr')
   .option('--data-path <path>', 'Read one custom Cursor workspaceStorage data source')
   .option(
+    '--profile',
+    'Write a content-free timing profile (phases and SQL shapes) as JSON to stderr on exit'
+  )
+  .option(
     '--source-limit <field=value>',
     'Override one Source Read Limits v1 field=value for this operation (repeatable by field)',
     parseSourceLimitOption
@@ -203,9 +213,37 @@ function commandLineError(error: CommanderError): CliError {
 
 const LegacyCommanderCode = Object.freeze({ GENERAL: 'CLI_GENERAL_ERROR' });
 
+let activeProfile: ProfileCollector | undefined;
+let profileExitHookInstalled = false;
+
+/** Attach a collector for this run and print its summary to stderr when the process exits. */
+function enableProfile(): void {
+  activeProfile = createProfileCollector();
+  setProcessDiagnosticsSink(activeProfile);
+  if (profileExitHookInstalled) return;
+  profileExitHookInstalled = true;
+  process.on('exit', () => {
+    if (!activeProfile) return;
+    try {
+      writeSync(
+        2,
+        `${JSON.stringify(activeProfile.toJSON())}
+`
+      );
+    } catch {
+      // Profiling output is best-effort and must not change the exit status.
+    }
+  });
+}
+
 // Main execution
 export async function main(argv: readonly string[] = process.argv): Promise<void> {
   const useJson = jsonRequested(argv);
+  if (argv.includes('--profile')) enableProfile();
+  else if (activeProfile) {
+    activeProfile = undefined;
+    setProcessDiagnosticsSink(undefined);
+  }
   try {
     // Preserve typed source-policy failures and validate cross-field constraints before even lazy
     // command loading, which in turn guarantees rejection before source payload I/O.

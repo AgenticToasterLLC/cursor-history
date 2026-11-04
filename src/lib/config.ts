@@ -35,6 +35,7 @@ export interface ResolvedConfig {
   sourceReadLimits?: LibraryConfig['sourceReadLimits'];
   readContext?: LibraryConfig['readContext'];
   signal?: AbortSignal;
+  diagnostics?: LibraryConfig['diagnostics'];
 }
 
 /**
@@ -124,6 +125,19 @@ export function validateConfig(config?: LibraryConfig): void {
   }
 
   if (
+    config.diagnostics !== undefined &&
+    (typeof config.diagnostics !== 'object' ||
+      config.diagnostics === null ||
+      typeof config.diagnostics.onEvent !== 'function')
+  ) {
+    throw new InvalidConfigError(
+      'diagnostics',
+      config.diagnostics,
+      'must be an object with an onEvent function'
+    );
+  }
+
+  if (
     config.readContext !== undefined &&
     (typeof config.readContext !== 'object' || config.readContext === null)
   ) {
@@ -154,6 +168,7 @@ export function mergeWithDefaults(config?: LibraryConfig): ResolvedConfig {
     sourceReadLimits: config?.sourceReadLimits,
     readContext: config?.readContext,
     signal: config?.signal,
+    diagnostics: config?.diagnostics,
   };
 }
 

@@ -3,6 +3,12 @@ import {
   type AdapterIoEventInput,
   type OperationIoContext,
 } from '../io-observer.js';
+import {
+  describeSql,
+  diagnosticsNow,
+  emitDiagnostic,
+  type DiagnosticStatementOp,
+} from '../diagnostics.js';
 import type { Database, DatabaseOperationRequest, RunResult, Statement } from './types.js';
 
 type IoIdentity = Pick<
@@ -104,6 +110,8 @@ function emit(
 }
 
 class ObservedStatement implements Statement {
+  private described: { sqlShape: string; fingerprint: string } | undefined;
+
   constructor(
     private readonly inner: Statement,
     private readonly sql: string,
@@ -111,25 +119,71 @@ class ObservedStatement implements Statement {
     private readonly fallback: IoIdentity
   ) {}
 
-  private beforeQuery(params: readonly unknown[]): void {
+  private beforeQuery(params: readonly unknown[]): IoIdentity {
     const identity = eventIdentity(this.sql, params, this.fallback);
     emit(this.context, 'query', identity);
     if (isKeyValueStatement(this.sql)) emit(this.context, 'get', identity, 'key-value');
+    return identity;
+  }
+
+  // diag: only reached when a sink is configured.
+  private report(
+    op: DiagnosticStatementOp,
+    identity: IoIdentity,
+    start: number,
+    rowsReturned: number
+  ): void {
+    const sink = this.context.diagnostics;
+    this.described ??= describeSql(this.sql);
+    emitDiagnostic(sink, {
+      type: 'query',
+      adapter: 'sqlite',
+      fingerprint: this.described.fingerprint,
+      sqlShape: this.described.sqlShape,
+      durationMs: diagnosticsNow() - start,
+      rowsReturned,
+      op,
+      resourceClass: identity.resourceClass,
+    });
   }
 
   get(...params: unknown[]): unknown {
-    this.beforeQuery(params);
-    return this.inner.get(...params);
+    const identity = this.beforeQuery(params);
+    if (!this.context.diagnostics) return this.inner.get(...params);
+    const start = diagnosticsNow();
+    let rows = 0;
+    try {
+      const row = this.inner.get(...params);
+      rows = row === undefined || row === null ? 0 : 1;
+      return row;
+    } finally {
+      this.report('get', identity, start, rows);
+    }
   }
 
   all(...params: unknown[]): unknown[] {
-    this.beforeQuery(params);
-    return this.inner.all(...params);
+    const identity = this.beforeQuery(params);
+    if (!this.context.diagnostics) return this.inner.all(...params);
+    const start = diagnosticsNow();
+    let rows = 0;
+    try {
+      const result = this.inner.all(...params);
+      rows = result.length;
+      return result;
+    } finally {
+      this.report('all', identity, start, rows);
+    }
   }
 
   run(...params: unknown[]): RunResult {
-    this.beforeQuery(params);
-    return this.inner.run(...params);
+    const identity = this.beforeQuery(params);
+    if (!this.context.diagnostics) return this.inner.run(...params);
+    const start = diagnosticsNow();
+    try {
+      return this.inner.run(...params);
+    } finally {
+      this.report('run', identity, start, 0);
+    }
   }
 }
 
@@ -147,14 +201,53 @@ class ObservedDatabase implements Database {
   prepare(sql: string): Statement {
     const identity = eventIdentity(sql, [], this.fallback);
     emit(this.context, 'prepare', identity);
-    return new ObservedStatement(this.inner.prepare(sql), sql, this.context, this.fallback);
+    if (!this.context.diagnostics) {
+      return new ObservedStatement(this.inner.prepare(sql), sql, this.context, this.fallback);
+    }
+    const start = diagnosticsNow();
+    let prepared: Statement;
+    try {
+      prepared = this.inner.prepare(sql);
+    } finally {
+      const { sqlShape, fingerprint } = describeSql(sql);
+      emitDiagnostic(this.context.diagnostics, {
+        type: 'query',
+        adapter: 'sqlite',
+        fingerprint,
+        sqlShape,
+        durationMs: diagnosticsNow() - start,
+        rowsReturned: 0,
+        op: 'prepare',
+        resourceClass: identity.resourceClass,
+      });
+    }
+    return new ObservedStatement(prepared, sql, this.context, this.fallback);
   }
 
   runSQL(sql: string): void {
     const identity = eventIdentity(sql, [], this.fallback);
     emit(this.context, 'prepare', identity);
     emit(this.context, 'query', identity);
-    this.inner.runSQL(sql);
+    if (!this.context.diagnostics) {
+      this.inner.runSQL(sql);
+      return;
+    }
+    const start = diagnosticsNow();
+    try {
+      this.inner.runSQL(sql);
+    } finally {
+      const { sqlShape, fingerprint } = describeSql(sql);
+      emitDiagnostic(this.context.diagnostics, {
+        type: 'query',
+        adapter: 'sqlite',
+        fingerprint,
+        sqlShape,
+        durationMs: diagnosticsNow() - start,
+        rowsReturned: 0,
+        op: 'run',
+        resourceClass: identity.resourceClass,
+      });
+    }
   }
 
   close(): void {
@@ -166,11 +259,26 @@ class ObservedDatabase implements Database {
 export function openObservedDatabase(
   context: OperationIoContext | undefined,
   request: DatabaseOperationRequest,
-  open: () => Database
+  open: () => Database,
+  readOnly = true
 ): Database {
   if (!context) return open();
   emit(context, 'open', requestIdentity(request));
-  return new ObservedDatabase(open(), context, request);
+  if (!context.diagnostics) return new ObservedDatabase(open(), context, request);
+  const start = diagnosticsNow();
+  let database: Database;
+  try {
+    database = open();
+  } finally {
+    emitDiagnostic(context.diagnostics, {
+      type: 'db-open',
+      adapter: 'sqlite',
+      resourceClass: requestIdentity(request).resourceClass,
+      durationMs: diagnosticsNow() - start,
+      readOnly,
+    });
+  }
+  return new ObservedDatabase(database, context, request);
 }
 
 /** Emit immediately before an online SQLite backup call. */

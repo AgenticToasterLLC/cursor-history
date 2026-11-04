@@ -76,6 +76,22 @@ export type {
   SessionSummary,
 } from './types.js';
 
+// Content-free performance diagnostics
+export type {
+  DiagnosticsSink,
+  DiagnosticEvent,
+  PhaseDiagnosticEvent,
+  QueryDiagnosticEvent,
+  DbOpenDiagnosticEvent,
+  DiagnosticStatementOp,
+  ProfileCollector,
+  ProfileSummary,
+  PhaseSummary,
+  QuerySummary,
+  DbOpenSummary,
+} from '../core/diagnostics.js';
+export { createProfileCollector, createDiagnosticsSink } from '../core/diagnostics.js';
+
 // Export MESSAGE_TYPES constant
 export { MESSAGE_TYPES } from './types.js';
 
@@ -383,6 +399,8 @@ function bindConfiguredReadContext(
     sourceReadLimits: resolved.sourceReadLimits,
     signal: resolved.signal,
     onDiagnostic: resolved.onDiagnostic,
+
+    diagnostics: resolved.diagnostics,
   });
   return {
     context,
@@ -418,6 +436,8 @@ export function createSessionReadContext(
     sourceReadLimits: resolved.sourceReadLimits,
     signal: resolved.signal,
     onDiagnostic: resolved.onDiagnostic,
+
+    diagnostics: resolved.diagnostics,
   });
   const wrapper: PublicSessionReadContext = {
     get resolvedSessionCapacity() {

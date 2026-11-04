@@ -5,6 +5,7 @@
  * reviewed safe tokens rather than paths, SQL, keys, or conversation content.
  */
 
+import type { DiagnosticsSink } from './diagnostics.js';
 import type { SourceReadLimitsV1, SourceRepresentation, SourceRole } from './types.js';
 
 export type IoAdapter = 'filesystem' | 'sqlite' | 'key-value';
@@ -76,6 +77,8 @@ export interface OperationIoContext {
   readonly sourceReadLimits: Readonly<SourceReadLimitsV1>;
   readonly signal?: AbortSignal;
   readonly emit?: AdapterIoObserver;
+  /** Content-free timing sink; unlike `emit`, failures are ignored. */
+  readonly diagnostics?: DiagnosticsSink;
 }
 
 export interface OperationIoContextOptions {
@@ -84,6 +87,7 @@ export interface OperationIoContextOptions {
   sourceReadLimits: Readonly<SourceReadLimitsV1>;
   signal?: AbortSignal;
   emit?: AdapterIoObserver;
+  diagnostics?: DiagnosticsSink;
 }
 
 export type AdapterIoEventInput = Omit<
@@ -110,6 +114,7 @@ export function createOperationIoContext(options: OperationIoContextOptions): Op
     sourceReadLimits: options.sourceReadLimits,
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.emit ? { emit: options.emit } : {}),
+    ...(options.diagnostics ? { diagnostics: options.diagnostics } : {}),
   });
 }
 
@@ -127,6 +132,7 @@ export function registerIoObserver(
     sourceReadLimits: context.sourceReadLimits,
     ...(context.signal ? { signal: context.signal } : {}),
     emit,
+    ...(context.diagnostics ? { diagnostics: context.diagnostics } : {}),
   });
 }
 
