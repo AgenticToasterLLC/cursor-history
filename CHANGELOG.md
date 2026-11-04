@@ -4,6 +4,67 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Optional sidecar catalog (`LibraryConfig.catalog: 'auto' | 'strict'`, default `'direct'`).
+  It caches the exact direct-read summary rows for each read scope, keyed by a stat-only
+  fingerprint of every source file, including each `-wal`, `workspace.json`, the Store
+  metadata and the root listings. A snapshot is served as `ready` only when that
+  fingerprint is unchanged and settled. Changed sources are served as `stale` with
+  `complete: false` while an unref'd worker thread rebuilds it. The sidecar lives under
+  the platform cache directory, or `CURSOR_HISTORY_INDEX_PATH`; it is disposable and
+  never inside Cursor's data directories. Adds `getCatalogStatus`, `refreshCatalog`,
+  `waitForCatalog` and `cancelCatalogRefreshes`.
+- Opt-in search index (`LibraryConfig.searchIndex`): a contentless FTS5 trigram index
+  that narrows candidate sessions. Every hit is then re-verified against the source
+  text, so results, offsets, ties and ambiguity handling are identical to a full scan.
+  Ineligible queries (under 3 characters, or non-ASCII) fall back with a disclosed
+  reason.
+- `LibraryConfig.searchOrder: 'recent'`: verifies sessions newest-first and stops once
+  `limit` sessions match. The result discloses `searchExhaustive`. The default
+  `'match-count'` order is unchanged.
+- Inventory-only `listWorkspaces()`, which never opens a conversation database, and an
+  additive `scope` outcome on scoped results. It distinguishes `empty` (a known
+  workspace with zero sessions) from `not-found`, which comes with ranked suggestions.
+  An unknown workspace now returns before Store discovery or any database open.
+- Content-free diagnostics (`LibraryConfig.diagnostics`, `createProfileCollector`, CLI
+  `--profile`): per-phase and per-SQL-fingerprint timings and row counts, with no
+  parameter or row values.
+- `scripts/perf/`: a synthetic corpus generator, a bench runner, a read-only
+  online-backup snapshot tool and query-plan probes. `docs/perf/` holds the
+  measurements.
+
+### Changed
+
+- Catalog discovery shares its global scans within a request. There is now one
+  `bubbleId:` key walk instead of four, and workspace databases are read once instead
+  of twice.
+- Composer SQL: byte lengths use header-only `octet_length(value)`, which is
+  feature-detected with an exact fallback, instead of `length(CAST(value AS BLOB))`.
+  Rowid-ordered iterators no longer sort a TEMP B-TREE on every page. Value point
+  reads are batched. Output is byte-identical; source-read limits are charged
+  identically or more conservatively.
+- `searchSessions` hydrates each hit once, and in strict mode it fails fast on
+  ambiguity before any hydration.
+
+### Fixed
+
+- `createBackup`/`restoreBackup` ignored `CURSOR_DATA_PATH` and always resolved the
+  default Cursor directory. A caller configured for a custom data path could
+  therefore back up, and with `force` restore into, the real default directory.
+- Windows: `file:///C:/x` workspace URIs are now decoded to `C:\x` in backup
+  manifests, and several tests now handle NTFS mode bits, `TEMP`/`TMP` and
+  unprivileged junctions correctly.
+
+### Performance (real 7.26 GB global DB, 106 workspaces, 507 sessions; see `docs/perf/`)
+
+| Scenario | 0.18.0 | 0.19.0 | Unreleased |
+| --- | --- | --- | --- |
+| Workspace-scoped `list -n 5` (known-empty workspace) | 1,181 s | ~2 s | 0.7 s cold / 24 ms warm (catalog) |
+| Unscoped `list -n 5` | > 25 min (timed out) | 9.3 s | 2.8 s cold / 24 ms warm (catalog) |
+| `show` by UUID | n/a | 9.5 s | 2.6 s |
+| `search` (limit 10, indexed, `recent` order) | n/a | 30-83 s | 3.0-6.2 s |
+
 ## [0.19.0] - 2026-10-26
 
 ### Added
