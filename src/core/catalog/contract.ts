@@ -50,6 +50,8 @@ export interface CatalogInfo {
   changedSources?: number;
   /** True when a background refresh was scheduled or is running for this scope. */
   refreshScheduled?: boolean;
+  /** Content-free reason code for degraded/unavailable states (never a message or path). */
+  reason?: string;
 }
 
 /** Stable identity of one read scope; snapshots are keyed by its canonical JSON sha256. */

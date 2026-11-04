@@ -43,10 +43,15 @@ function readConfigFor(request: IndexerRequest, signal?: AbortSignal): LibraryCo
     backupPath: str(rc['backupPath']),
     workspace: str(rc['workspace']) ?? key.workspace ?? undefined,
     includeCrossWorkspaceSources: key.includeCrossWorkspaceSources,
-    // Effective limits come from the scope key so the snapshot matches its key exactly.
-    sourceReadLimits: key.sourceReadLimits as LibraryConfig['sourceReadLimits'],
     signal,
   };
+  // Pass the caller's original override (not the resolved key form, which
+  // includes policyVersion and every field and is rejected by config
+  // validation). The key was derived deterministically from this same
+  // override, so the read reproduces exactly the limits the key records.
+  if (rc['sourceReadLimits'] !== undefined && rc['sourceReadLimits'] !== null) {
+    config.sourceReadLimits = rc['sourceReadLimits'] as LibraryConfig['sourceReadLimits'];
+  }
   const driver = str(rc['sqliteDriver']);
   if (driver) config.sqliteDriver = driver as LibraryConfig['sqliteDriver'];
   return config;

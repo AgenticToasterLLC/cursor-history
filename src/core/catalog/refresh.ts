@@ -8,7 +8,14 @@ import type {
   IndexerRequest,
   IndexerResponse,
 } from './contract.js';
-import { getRegisteredModules } from './deps.js';
+import { getRegisteredModules, registerCatalogModules } from './deps.js';
+import { createCatalogLock } from './lock.js';
+import { digestScopeKey } from './scope-key.js';
+
+// requestCatalogRefresh is synchronous, so its C1 dependencies are wired
+// statically (both modules are pure Node builtins). Tests may still override
+// them through registerCatalogModules or options.deps.
+registerCatalogModules({ createCatalogLock, digestScopeKey });
 
 export interface RefreshOptions {
   deps?: { createCatalogLock?: CreateCatalogLock; digestScopeKey?: DigestScopeKey };
