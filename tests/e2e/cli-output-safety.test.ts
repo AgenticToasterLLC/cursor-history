@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { runBuiltCli } from '../helpers/run-cli.js';
+import { platformDefaultUserDirFor } from '../helpers/live-tree.js';
 import { canonicalTempDir } from '../helpers/canonical-temp.js';
 import {
   createSessionIntegrityFixtureRoot,
@@ -26,6 +27,7 @@ let fixture: SessionIntegrityFixtureRoot;
 let fakeHome: string;
 let env: NodeJS.ProcessEnv;
 let liveDb: string;
+let userDir: string;
 
 function sha(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -36,19 +38,22 @@ beforeEach(() => {
   seedConflictingWorkspaceCorpus(fixture);
   // Fake "live Cursor" tree; every user-directory variable is redirected into it.
   fakeHome = mkdtempSync(join(canonicalTempDir(), 'out-safety-home-'));
-  const appData = join(fakeHome, 'AppData', 'Roaming');
-  const liveGlobal = join(appData, 'Cursor', 'User', 'globalStorage');
-  mkdirSync(liveGlobal, { recursive: true });
-  mkdirSync(join(appData, 'Cursor', 'User', 'workspaceStorage'), { recursive: true });
-  liveDb = join(liveGlobal, 'state.vscdb');
-  writeFileSync(liveDb, 'not really a database');
   env = {
-    APPDATA: appData,
+    APPDATA: join(fakeHome, 'AppData', 'Roaming'),
     LOCALAPPDATA: join(fakeHome, 'AppData', 'Local'),
     USERPROFILE: fakeHome,
     HOME: fakeHome,
+    XDG_CONFIG_HOME: undefined,
+    XDG_CACHE_HOME: undefined,
     CURSOR_STORE_ROOT: fixture.storeRoot,
   };
+  // Where the built CLI resolves the platform-default live tree for this fake home (per OS).
+  userDir = platformDefaultUserDirFor(env);
+  const liveGlobal = join(userDir, 'globalStorage');
+  mkdirSync(liveGlobal, { recursive: true });
+  mkdirSync(join(userDir, 'workspaceStorage'), { recursive: true });
+  liveDb = join(liveGlobal, 'state.vscdb');
+  writeFileSync(liveDb, 'not really a database');
   delete env['CURSOR_DATA_PATH'];
 });
 
@@ -163,24 +168,8 @@ describe('built CLI export output safety', { timeout: 60_000 }, () => {
       size: statSync(liveDb).size,
       mtime: statSync(liveDb).mtimeMs,
     };
-    const inCursor = join(
-      fakeHome,
-      'AppData',
-      'Roaming',
-      'Cursor',
-      'User',
-      'globalStorage',
-      'notes.md'
-    );
-    const dirInCursor = join(
-      fakeHome,
-      'AppData',
-      'Roaming',
-      'Cursor',
-      'User',
-      'workspaceStorage',
-      'out'
-    );
+    const inCursor = join(userDir, 'globalStorage', 'notes.md');
+    const dirInCursor = join(userDir, 'workspaceStorage', 'out');
     for (const args of [
       ['export', '1', '-o', liveDb, '--force', '--yes'],
       ['export', '1', '-o', inCursor, '--force', '--yes'],

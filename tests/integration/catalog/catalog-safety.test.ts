@@ -37,6 +37,7 @@ import { createCatalogLock } from '../../../src/core/catalog/lock.js';
 import { defaultCatalogPath } from '../../../src/core/catalog/paths.js';
 import { CATALOG_APPLICATION_ID } from '../../../src/core/catalog/identity.js';
 import { ensureCatalogDriver, openCatalogStore } from '../../../src/core/catalog/store.js';
+import { platformDefaultUserDir } from '../../helpers/live-tree.js';
 import { ProtectedPathError } from '../../../src/core/write-guard.js';
 
 const ENV_KEYS = [
@@ -45,6 +46,7 @@ const ENV_KEYS = [
   'USERPROFILE',
   'HOME',
   'XDG_CACHE_HOME',
+  'XDG_CONFIG_HOME',
   'CURSOR_DATA_PATH',
   'CURSOR_STORE_ROOT',
   'CURSOR_HISTORY_INDEX_PATH',
@@ -122,11 +124,13 @@ beforeAll(async () => {
   process.env['USERPROFILE'] = home;
   process.env['HOME'] = home;
   process.env['XDG_CACHE_HOME'] = join(home, '.cache');
+  delete process.env['XDG_CONFIG_HOME'];
   delete process.env['CURSOR_DATA_PATH'];
   delete process.env['CURSOR_STORE_ROOT'];
   delete process.env['CURSOR_HISTORY_INDEX_PATH'];
 
-  const user = join(appData, 'Cursor', 'User');
+  // The fake live tree must sit where the product resolves the platform default (per OS).
+  const user = platformDefaultUserDir();
   globalStorage = join(user, 'globalStorage');
   workspaceStorage = join(user, 'workspaceStorage');
   mkdirSync(globalStorage, { recursive: true });

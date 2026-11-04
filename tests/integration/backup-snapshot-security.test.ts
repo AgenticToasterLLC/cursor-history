@@ -2014,7 +2014,10 @@ describe.sequential('backup plaintext snapshot isolation', () => {
           publishedFileCount: 1,
           residualFileCount: 1,
           residualFiles: ['globalStorage/state.vscdb'],
-          remedy: expect.stringContaining('known-good backup'),
+          // A safety copy exists, so the remedy points at it instead of a generic known-good backup.
+          remedy: expect.stringContaining('safety copy directory'),
+          safetyCopyDir: expect.any(String),
+          rollbackFailures: ['globalStorage/state.vscdb'],
         },
         cause: expect.objectContaining({
           message: 'synthetic failure with blocked rollback path',

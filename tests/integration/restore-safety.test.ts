@@ -58,6 +58,8 @@ import {
   assertWorkspaceStorageTarget,
   looksLikeWorkspaceStorage,
 } from '../../src/cli/commands/restore.js';
+import { platformDefaultUserDir } from '../helpers/live-tree.js';
+import { defaultRestoreSafetyRoot } from '../../src/core/restore-safety.js';
 import { CliError } from '../../src/cli/errors.js';
 import { readBackupManifest, restoreBackup } from '../../src/core/backup.js';
 import { LiveTargetNotConfirmedError, RestoreSafetyCopyError } from '../../src/lib/errors.js';
@@ -74,6 +76,7 @@ const ENV_NAMES = [
   'USERPROFILE',
   'HOME',
   'XDG_CACHE_HOME',
+  'XDG_CONFIG_HOME',
   'CURSOR_DATA_PATH',
   'CURSOR_HISTORY_SKIP_RUNNING_CHECK',
   'CURSOR_HISTORY_RESTORE_SAFETY_DIR',
@@ -162,13 +165,14 @@ beforeEach(async () => {
   process.env['USERPROFILE'] = join(root, 'home');
   process.env['HOME'] = join(root, 'home');
   delete process.env['XDG_CACHE_HOME'];
+  delete process.env['XDG_CONFIG_HOME'];
   delete process.env['CURSOR_DATA_PATH'];
   delete process.env['CURSOR_HISTORY_SKIP_RUNNING_CHECK'];
   delete process.env['CURSOR_HISTORY_RESTORE_SAFETY_DIR'];
   for (const dir of ['appdata', 'local', 'home']) mkdirSync(join(root, dir), { recursive: true });
 
-  // The platform default (APPDATA/Cursor/User/workspaceStorage) is a temp fake "live" tree.
-  const user = join(root, 'appdata', 'Cursor', 'User');
+  // The platform default (per OS) resolved under the redirected env is a temp fake "live" tree.
+  const user = platformDefaultUserDir();
   const fixture: SessionIntegrityFixtureRoot = {
     root,
     workspaceStorage: join(user, 'workspaceStorage'),
@@ -186,7 +190,7 @@ beforeEach(async () => {
     root,
     user,
     workspaceStorage: fixture.workspaceStorage,
-    safetyRoot: join(root, 'local', 'cursor-history', 'restore-safety'),
+    safetyRoot: defaultRestoreSafetyRoot(),
     archive: '',
     fixture,
   };
