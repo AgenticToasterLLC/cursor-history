@@ -14,6 +14,7 @@ import type {
   SqliteDriverName,
 } from './types.js';
 import { InvalidConfigError, DatabaseNotFoundError } from './errors.js';
+import { assertSafeOutputPath, ProtectedPathError } from '../core/write-guard.js';
 import { getCursorDataPath } from '../lib/platform.js';
 
 /** Valid SQLite driver names */
@@ -47,6 +48,26 @@ export interface ResolvedConfig {
   catalogPath?: string;
   searchIndex: boolean;
   searchOrder: 'match-count' | 'recent';
+}
+
+/**
+ * Reject a `catalogPath` that the shared write guard protects (inside Cursor data, or named like
+ * a Cursor database). Used by operations that must fail loudly (`refreshCatalog`); reads never
+ * fail on it: the catalog open maps the same refusal to a degraded `PROTECTED_PATH` state.
+ * @internal
+ */
+export function assertCatalogPathAllowed(config?: LibraryConfig): void {
+  if (config?.catalogPath === undefined) return;
+  try {
+    assertSafeOutputPath(config.catalogPath, 'catalog');
+  } catch (error) {
+    if (!(error instanceof ProtectedPathError)) throw error;
+    throw new InvalidConfigError(
+      'catalogPath',
+      '[protected]',
+      'must not be inside Cursor data directories or named like a Cursor database'
+    );
+  }
 }
 
 /**
@@ -178,7 +199,6 @@ export function validateConfig(config?: LibraryConfig): void {
   ) {
     throw new InvalidConfigError('catalogPath', config.catalogPath, 'must be a non-empty string');
   }
-
   if (
     config.readContext !== undefined &&
     (typeof config.readContext !== 'object' || config.readContext === null)

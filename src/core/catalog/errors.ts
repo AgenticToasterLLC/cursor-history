@@ -8,9 +8,12 @@ export const CATALOG_UNAVAILABLE_CODE = 'CATALOG_UNAVAILABLE' as const;
 export class CatalogUnavailableError extends Error {
   override readonly name = 'CatalogUnavailableError';
   readonly code = CATALOG_UNAVAILABLE_CODE;
+  /** Content-free reason token (for example NOT_A_CATALOG). */
+  readonly reason?: string;
 
-  constructor(message = 'Catalog sidecar is unavailable') {
+  constructor(message = 'Catalog sidecar is unavailable', reason?: string) {
     super(message);
+    if (reason !== undefined) this.reason = reason;
     if (Error.captureStackTrace) Error.captureStackTrace(this, CatalogUnavailableError);
   }
 }

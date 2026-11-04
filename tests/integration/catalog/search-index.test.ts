@@ -333,7 +333,7 @@ describe('schema', () => {
     const old = join(work, 'old-schema.sqlite');
     const db = new BetterSqlite3(old);
     db.exec(
-      "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO meta VALUES ('schema_version','1'), ('projection_epoch','1');"
+      "PRAGMA application_id = 1128809300; CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO meta VALUES ('application','cursor-history-catalog'), ('schema_version','1'), ('projection_epoch','1');"
     );
     db.close();
     const store = await openCatalogStoreAsync({ path: old });

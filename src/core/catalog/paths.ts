@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 
+import { assertSafeOutputPath } from '../write-guard.js';
 import { CATALOG_SCHEMA_VERSION } from './contract.js';
 import { CatalogUnavailableError } from './errors.js';
 
@@ -56,6 +57,7 @@ export function defaultCatalogPath(env: NodeJS.ProcessEnv = process.env): string
     }
     result = join(base, 'cursor-history', `catalog-v${CATALOG_SCHEMA_VERSION}.sqlite`);
   }
+  assertSafeOutputPath(result, 'catalog');
   const home = env['HOME'] || env['USERPROFILE'] || homedir();
   if (isInsideCursorDataDir(result, home)) {
     throw new CatalogUnavailableError('Catalog path must not be inside Cursor data directories');

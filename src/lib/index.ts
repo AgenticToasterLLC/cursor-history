@@ -234,7 +234,12 @@ import {
 } from '../core/catalog/read.js';
 import type { CatalogStatus } from '../core/catalog/contract.js';
 import type { SearchPlan } from '../core/catalog/search-index.js';
-import { mergeWithDefaults, resolveListWorkspacesConfig, type ResolvedConfig } from './config.js';
+import {
+  assertCatalogPathAllowed,
+  mergeWithDefaults,
+  resolveListWorkspacesConfig,
+  type ResolvedConfig,
+} from './config.js';
 import {
   DatabaseLockedError,
   DatabaseNotFoundError,
@@ -996,6 +1001,7 @@ export async function refreshCatalog(
   config?: LibraryConfig
 ): Promise<{ jobId: string; alreadyRunning: boolean; rateLimited?: boolean }> {
   mergeWithDefaults(config);
+  assertCatalogPathAllowed(config);
   const reason = catalogIneligibleReason(config);
   if (reason !== undefined) {
     throw new InvalidConfigError('catalog', reason, 'the catalog cannot be used with this option');
