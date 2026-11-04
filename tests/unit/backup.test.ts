@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import packageJson from '../../package.json';
 
@@ -937,7 +937,8 @@ describe('restoreBackup', () => {
     vi.mocked(existsSync).mockReturnValue(true); // backup and target exist
     vi.mocked(mkdirSync).mockImplementation(() => undefined as unknown as string);
     vi.mocked(lstatSync).mockImplementation((path) => {
-      const value = String(path);
+      // Normalise Windows drive prefixes and separators so the POSIX-shaped fixture paths match.
+      const value = String(path).split(sep).join('/').replace(/^[A-Za-z]:/, '') || '/';
       if (
         value === '/' ||
         value === '/target' ||

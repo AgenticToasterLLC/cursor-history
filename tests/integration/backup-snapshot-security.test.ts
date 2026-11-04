@@ -1765,7 +1765,11 @@ describe.sequential('backup plaintext snapshot isolation', () => {
       }),
     });
     expect(readFileSync(globalPath)).toEqual(replacementGlobal);
-    expect(lstatSync(globalPath).mode & 0o777).toBe(0o600);
+    // NTFS cannot represent POSIX permission bits (stat reports 0o666 or 0o444), so the 0600
+    // contract is only observable on POSIX. On Windows isolation relies on per-user directories.
+    if (process.platform !== 'win32') {
+      expect(lstatSync(globalPath).mode & 0o777).toBe(0o600);
+    }
     expect(readFileSync(globalPath)).not.toEqual(originalGlobal);
     expect(existsSync(workspacePath)).toBe(false);
     expect(currentPrivateTempPaths()).toEqual(before);
@@ -2452,14 +2456,19 @@ describe.sequential('backup plaintext snapshot isolation', () => {
   });
 
   it('fails secure workspace creation without falling back to a shared predictable file', async () => {
-    const priorTmpdir = process.env['TMPDIR'];
-    process.env['TMPDIR'] = join(fixtureRoot, 'missing-temp-parent');
+    // os.tmpdir() reads TMPDIR on POSIX but TEMP/TMP on Windows; override all of them.
+    const variables = ['TMPDIR', 'TEMP', 'TMP'] as const;
+    const prior = variables.map((name) => process.env[name]);
+    for (const name of variables) process.env[name] = join(fixtureRoot, 'missing-temp-parent');
     try {
       await expect(openBackupDatabase(archivePath, 'globalStorage/state.vscdb')).rejects.toThrow();
       expect(snapshotPath).toBeUndefined();
     } finally {
-      if (priorTmpdir === undefined) delete process.env['TMPDIR'];
-      else process.env['TMPDIR'] = priorTmpdir;
+      variables.forEach((name, index) => {
+        const value = prior[index];
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      });
     }
   });
 
