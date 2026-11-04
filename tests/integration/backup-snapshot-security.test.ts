@@ -1559,7 +1559,12 @@ describe.sequential('backup plaintext snapshot isolation', () => {
         corruptedFiles: ['workspaceStorage/ws/state.vscdb'],
       });
 
-      const result = await restoreBackup({ backupPath: archivePath, targetPath, force });
+      const result = await restoreBackup({
+        backupPath: archivePath,
+        targetPath,
+        force,
+        allowPartial: true,
+      });
 
       expect(result).toMatchObject({
         success: true,
@@ -1620,7 +1625,12 @@ describe.sequential('backup plaintext snapshot isolation', () => {
     mkdirSync(dirname(workspaceDestination), { recursive: true });
     writeFileSync(workspaceDestination, priorWorkspace, { mode: 0o600 });
 
-    const result = await restoreBackup({ backupPath: archivePath, targetPath, force: true });
+    const result = await restoreBackup({
+      backupPath: archivePath,
+      targetPath,
+      force: true,
+      allowPartial: true,
+    });
 
     expect(result).toMatchObject({
       success: true,
@@ -1686,7 +1696,7 @@ describe.sequential('backup plaintext snapshot isolation', () => {
     }
   );
 
-  it('fails closed without mutating an already-published file after a later callback fails', async () => {
+  it('rolls an already-published file back from the safety copy after a later callback fails', async () => {
     const replacementGlobal = Buffer.from('replacement global');
     const replacementWorkspace = Buffer.from('replacement workspace');
     const files = [
@@ -1735,42 +1745,25 @@ describe.sequential('backup plaintext snapshot isolation', () => {
     writeFileSync(globalPath, originalGlobal, { mode: 0o640 });
     const before = currentPrivateTempPaths();
 
-    let caught: unknown;
-    try {
-      await restoreBackup({
-        backupPath: path,
-        targetPath,
-        force: true,
-        onProgress: (progress) => {
-          if (progress.phase === 'extracting' && progress.filesCompleted === 1) {
-            expect(readFileSync(globalPath)).toEqual(replacementGlobal);
-            throw new Error('synthetic failure after first publication');
-          }
-        },
-      });
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toBeInstanceOf(RestoreRollbackError);
-    expect(caught).toMatchObject({
-      code: 'RESTORE_ROLLBACK_INCOMPLETE',
-      details: {
-        publishedFileCount: 1,
-        residualFileCount: 1,
-        residualFiles: ['globalStorage/state.vscdb'],
+    const result = await restoreBackup({
+      backupPath: path,
+      targetPath,
+      force: true,
+      safetyCopyDir: join(fixtureRoot, 'rollback-restore-safety'),
+      onProgress: (progress) => {
+        if (progress.phase === 'extracting' && progress.filesCompleted === 1) {
+          expect(readFileSync(globalPath)).toEqual(replacementGlobal);
+          throw new Error('synthetic failure after first publication');
+        }
       },
-      cause: expect.objectContaining({
-        message: 'synthetic failure after first publication',
-      }),
     });
-    expect(readFileSync(globalPath)).toEqual(replacementGlobal);
-    // NTFS cannot represent POSIX permission bits (stat reports 0o666 or 0o444), so the 0600
-    // contract is only observable on POSIX. On Windows isolation relies on per-user directories.
-    if (process.platform !== 'win32') {
-      expect(lstatSync(globalPath).mode & 0o777).toBe(0o600);
-    }
-    expect(readFileSync(globalPath)).not.toEqual(originalGlobal);
+
+    // The already-published file is returned to its pre-restore bytes from the verified safety
+    // copy, which is kept. Nothing was newly created, so nothing is left to report.
+    expect(result).toMatchObject({ success: false, rolledBack: true });
+    expect(result.error).toContain('synthetic failure after first publication');
+    expect(readFileSync(globalPath)).toEqual(originalGlobal);
+    expect(existsSync(result.safetyCopy!.manifestPath)).toBe(true);
     expect(existsSync(workspacePath)).toBe(false);
     expect(currentPrivateTempPaths()).toEqual(before);
   });
@@ -2133,7 +2126,7 @@ describe.sequential('backup plaintext snapshot isolation', () => {
   );
 
   it.each(['last-file', 'finalizing'] as const)(
-    'fails closed and cleans private staging when cancellation occurs at %s progress',
+    'rolls back and cleans private staging when cancellation occurs at %s progress',
     async (abortPoint) => {
       const replacementGlobal = Buffer.from('replacement global');
       const replacementWorkspace = Buffer.from('replacement workspace');
@@ -2183,40 +2176,44 @@ describe.sequential('backup plaintext snapshot isolation', () => {
       const controller = new AbortController();
       const before = currentPrivateTempPaths();
 
-      await expect(
-        restoreBackup({
-          backupPath: path,
-          targetPath,
-          force: true,
-          signal: controller.signal,
-          onProgress: (progress) => {
-            if (
-              (abortPoint === 'last-file' &&
-                progress.phase === 'extracting' &&
-                progress.filesCompleted === progress.totalFiles - 1) ||
-              (abortPoint === 'finalizing' && progress.phase === 'finalizing')
-            ) {
-              controller.abort(new Error(`cancel at ${abortPoint}`));
-            }
-          },
-        })
-      ).rejects.toMatchObject({
-        code: 'RESTORE_ROLLBACK_INCOMPLETE',
-        details: {
-          publishedFileCount: abortPoint === 'last-file' ? 1 : 2,
-          residualFileCount: abortPoint === 'last-file' ? 1 : 2,
-          residualFiles:
-            abortPoint === 'last-file'
-              ? ['globalStorage/state.vscdb']
-              : ['globalStorage/state.vscdb', 'workspaceStorage/ws/state.vscdb'],
+      const outcome = await restoreBackup({
+        backupPath: path,
+        targetPath,
+        force: true,
+        signal: controller.signal,
+        safetyCopyDir: join(fixtureRoot, `cancel-${abortPoint}-safety`),
+        onProgress: (progress) => {
+          if (
+            (abortPoint === 'last-file' &&
+              progress.phase === 'extracting' &&
+              progress.filesCompleted === progress.totalFiles - 1) ||
+            (abortPoint === 'finalizing' && progress.phase === 'finalizing')
+          ) {
+            controller.abort(new Error(`cancel at ${abortPoint}`));
+          }
         },
-        cause: { name: 'AbortError' },
-      });
+      }).then(
+        () => undefined,
+        (error: unknown) => error
+      );
 
-      expect(readFileSync(globalPath)).toEqual(replacementGlobal);
-      expect(readFileSync(globalPath)).not.toEqual(originalGlobal);
-      expect(existsSync(workspacePath)).toBe(abortPoint === 'finalizing');
-      if (abortPoint === 'finalizing') {
+      // The replaced global database is always returned to its original bytes from the safety
+      // copy. A newly created workspace file has no prior content, so it is reported as residual.
+      expect(readFileSync(globalPath)).toEqual(originalGlobal);
+      if (abortPoint === 'last-file') {
+        expect(outcome).toMatchObject({ name: 'AbortError' });
+        expect(existsSync(workspacePath)).toBe(false);
+      } else {
+        expect(outcome).toBeInstanceOf(RestoreRollbackError);
+        expect(outcome).toMatchObject({
+          code: 'RESTORE_ROLLBACK_INCOMPLETE',
+          details: {
+            publishedFileCount: 2,
+            residualFileCount: 1,
+            residualFiles: ['workspaceStorage/ws/state.vscdb'],
+          },
+          cause: { name: 'AbortError' },
+        });
         expect(readFileSync(workspacePath)).toEqual(replacementWorkspace);
       }
       expect(currentPrivateTempPaths()).toEqual(before);

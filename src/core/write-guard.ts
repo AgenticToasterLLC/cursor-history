@@ -32,7 +32,12 @@ export type ProtectedPathReason =
 
 /** Purpose of the attempted write, reported in errors (content-free). */
 export type GuardedWritePurpose =
-  'backup-output' | 'export-output' | 'training-output' | 'catalog' | 'audit-log';
+  | 'backup-output'
+  | 'export-output'
+  | 'training-output'
+  | 'catalog'
+  | 'audit-log'
+  | 'restore-safety';
 
 /**
  * Refuses a caller-chosen write target inside Cursor's data, or named like a

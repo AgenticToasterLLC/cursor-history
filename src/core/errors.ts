@@ -11,6 +11,8 @@ export type SessionIntegrityErrorCode =
   | 'BACKUP_PUBLISHED_CLEANUP_FAILED'
   | 'BACKUP_WORKSPACE_SCOPE_METADATA_REQUIRED'
   | 'RESTORE_ROLLBACK_INCOMPLETE'
+  | 'RESTORE_SAFETY_COPY_FAILED'
+  | 'LIVE_TARGET_NOT_CONFIRMED'
   | 'TEMPORARY_ARTIFACT_CLEANUP_FAILED'
   | 'READ_CONTEXT_SOURCE_MISMATCH'
   | 'READ_CONTEXT_SCOPE_MISMATCH'
@@ -478,14 +480,19 @@ export class TemporaryArtifactCleanupError extends SessionIntegrityError<
 }
 
 /**
- * Reports entries that were published before a later restore failure. Portable Node path APIs do
- * not provide atomic compare-and-replace/unlink, so automatic rollback leaves every published
- * destination untouched and reports its manifest-relative path for explicit recovery.
+ * Reports a restore that failed after files were published and whose automatic rollback from the
+ * restore safety copy did not fully complete (or that left newly created files behind).
+ *
+ * Restore keeps a verified copy of every replaced file before its first write. When a later step
+ * fails it restores those files automatically; this error is thrown only when that rollback
+ * itself failed. `safetyCopyDir` then names the directory holding the verified originals and its
+ * `manifest.json`, so the user can copy the files back by hand (see `remedy`).
  *
  * @param publishedFileCount - Number of entries published before the restore failed.
- * @param residualFiles - Safe manifest-relative entries left untouched for explicit recovery.
+ * @param residualFiles - Manifest-relative entries that were NOT returned to their prior state.
  * @param cause - Original restore failure, when available.
  * @param temporaryCleanupErrors - Additional owner-private cleanup failures to expose at top level.
+ * @param recovery - Safety-copy location and rollback outcome, when a safety copy exists.
  */
 export class RestoreRollbackError extends SessionIntegrityError<
   'RESTORE_ROLLBACK_INCOMPLETE',
@@ -497,6 +504,9 @@ export class RestoreRollbackError extends SessionIntegrityError<
     residuePaths: string[];
     unverifiedResidueCount: number;
     unverifiedResiduePaths: string[];
+    safetyCopyDir?: string;
+    rollbackFailureCount?: number;
+    rollbackFailures?: string[];
     remedy: string;
   }
 > {
@@ -506,7 +516,8 @@ export class RestoreRollbackError extends SessionIntegrityError<
     publishedFileCount: number,
     residualFiles: string[],
     cause?: unknown,
-    temporaryCleanupErrors: readonly TemporaryArtifactCleanupError[] = []
+    temporaryCleanupErrors: readonly TemporaryArtifactCleanupError[] = [],
+    recovery?: { safetyCopyDir?: string; rollbackFailures?: readonly string[] }
   ) {
     const ordered = [...new Set(residualFiles)].sort(compareCodePoints);
     const cleanupErrors = [
@@ -524,9 +535,16 @@ export class RestoreRollbackError extends SessionIntegrityError<
       residuePaths.length > 0 || unverifiedResiduePaths.length > 0
         ? ' Remove only verified private temporary paths after confirming no operation is active; do not delete unverified paths blindly.'
         : '';
+    const safetyCopyDir = recovery?.safetyCopyDir;
+    const rollbackFailures = [...new Set(recovery?.rollbackFailures ?? [])].sort(compareCodePoints);
+    const rollbackAttempted = recovery !== undefined;
     super(
       'RESTORE_ROLLBACK_INCOMPLETE',
-      'Restore failed after one or more files were published; automatic rollback was not attempted.',
+      rollbackFailures.length > 0
+        ? 'Restore failed after one or more files were published and automatic rollback from the safety copy did not complete.'
+        : rollbackAttempted
+          ? 'Restore failed after one or more files were published. Replaced files were rolled back from the safety copy; newly created files were left in place and are listed as residual.'
+          : 'Restore failed after one or more files were published; automatic rollback was not attempted.',
       {
         publishedFileCount,
         residualFileCount: ordered.length,
@@ -535,14 +553,76 @@ export class RestoreRollbackError extends SessionIntegrityError<
         residuePaths,
         unverifiedResidueCount: unverifiedResiduePaths.length,
         unverifiedResiduePaths,
+        ...(safetyCopyDir === undefined ? {} : { safetyCopyDir }),
+        ...(rollbackAttempted
+          ? { rollbackFailureCount: rollbackFailures.length, rollbackFailures }
+          : {}),
         remedy:
-          'Stop Cursor, inspect the listed archive-relative destinations, and restore them from a known-good backup before retrying.' +
+          (safetyCopyDir === undefined
+            ? 'Stop Cursor, inspect the listed archive-relative destinations, and restore them from a known-good backup before retrying.'
+            : `Stop Cursor, then copy the files listed in manifest.json inside the safety copy directory back to their original locations (each manifest path is relative to the Cursor User directory, the parent of workspaceStorage). The safety copy is never deleted automatically: ${safetyCopyDir}`) +
           cleanupRemedy,
       }
     );
     if (cause !== undefined) {
       Object.defineProperty(this, 'cause', { configurable: true, value: cause });
     }
+  }
+}
+
+/**
+ * Refuses a restore because the verified pre-restore safety copy could not be created. Nothing in
+ * the Cursor data directory was modified.
+ *
+ * @param reason - Content-free reason (for example `copy-failed`, `verify-failed`).
+ * @param safetyCopyDir - Safety directory that was being written, when known.
+ * @param cause - Underlying filesystem failure, when available.
+ */
+export class RestoreSafetyCopyError extends SessionIntegrityError<
+  'RESTORE_SAFETY_COPY_FAILED',
+  { reason: string; safetyCopyDir?: string; remedy: string }
+> {
+  override readonly name = 'RestoreSafetyCopyError';
+
+  constructor(reason: string, safetyCopyDir?: string, cause?: unknown) {
+    super(
+      'RESTORE_SAFETY_COPY_FAILED',
+      `Restore aborted before any change: the pre-restore safety copy could not be created and verified (${reason}).`,
+      {
+        reason,
+        ...(safetyCopyDir === undefined ? {} : { safetyCopyDir }),
+        remedy:
+          'No Cursor file was modified. Check free disk space and permissions, or choose another safetyCopyDir outside Cursor data, then retry.',
+      }
+    );
+    if (cause !== undefined) {
+      Object.defineProperty(this, 'cause', { configurable: true, value: cause });
+    }
+  }
+}
+
+/**
+ * Refuses a forced restore into the platform-default (live) Cursor data directory without the
+ * explicit `confirmLiveTarget` acknowledgement.
+ *
+ * @param targetPath - The live workspaceStorage directory that would be overwritten.
+ */
+export class LiveTargetNotConfirmedError extends SessionIntegrityError<
+  'LIVE_TARGET_NOT_CONFIRMED',
+  { targetPath: string; remedy: string }
+> {
+  override readonly name = 'LiveTargetNotConfirmedError';
+
+  constructor(targetPath: string) {
+    super(
+      'LIVE_TARGET_NOT_CONFIRMED',
+      'Refusing to overwrite the live Cursor data directory: force alone is not enough. Pass confirmLiveTarget: true (CLI: --yes or answer the prompt) after quitting Cursor.',
+      {
+        targetPath,
+        remedy:
+          'Quit Cursor, then retry with confirmLiveTarget: true, or restore into an explicit targetPath.',
+      }
+    );
   }
 }
 

@@ -1038,6 +1038,33 @@ export interface RestoreConfig {
   force?: boolean;
 
   /**
+   * Acknowledge that the target is the platform-default (live) Cursor data directory. With
+   * `force`, restoring into that directory is refused unless this is `true`. A custom
+   * `targetPath` or `CURSOR_DATA_PATH` that is not the platform default does not need it.
+   */
+  confirmLiveTarget?: boolean;
+
+  /**
+   * Proceed when some archive entries fail their checksum, restoring only the intact ones. By
+   * default any checksum failure aborts the whole restore before anything is written.
+   */
+  allowPartial?: boolean;
+
+  /**
+   * Validate and plan only: nothing is written. Blocking conditions (Cursor running, unconfirmed
+   * live target, checksum failures, existing data without `force`) are reported in the result
+   * instead of being thrown.
+   */
+  dryRun?: boolean;
+
+  /**
+   * Base directory for the pre-restore safety copy (default: `cursor-history/restore-safety` in
+   * the platform cache directory). A timestamped subdirectory is created beneath it. It must be
+   * outside Cursor's data directories.
+   */
+  safetyCopyDir?: string;
+
+  /**
    * Progress callback for UI updates.
    *
    * @param progress - Current restore phase, file progress, and integrity state.
@@ -1094,6 +1121,58 @@ export interface RestoreResult {
 
   /** Error message if failed */
   error?: string;
+
+  /** True when this was a dry run and nothing was written */
+  dryRun?: boolean;
+
+  /** Conditions that prevent (or, in a dry run, would prevent) the restore from proceeding */
+  blockingConditions?: RestoreBlockingCondition[];
+
+  /** Archive-relative paths of existing files that were (or would be) replaced */
+  filesToReplace?: string[];
+
+  /**
+   * Verified pre-restore copy of every replaced file. To roll back manually, copy the files
+   * listed in `manifest.json` back into the Cursor `User` directory. Never deleted automatically.
+   */
+  safetyCopy?: RestoreSafetyCopyInfo;
+
+  /** Base directory under which the safety copy will be created (dry run only) */
+  safetyCopyRoot?: string;
+
+  /** True when `allowPartial` let the restore proceed without some corrupt entries */
+  partial?: boolean;
+
+  /** Archive-relative paths skipped because they failed their checksum (partial restore) */
+  skippedFiles?: string[];
+
+  /** True when a failure was automatically rolled back from the safety copy */
+  rolledBack?: boolean;
+}
+
+/**
+ * A condition that blocks a restore.
+ */
+export interface RestoreBlockingCondition {
+  /** Stable code */
+  code: 'CURSOR_RUNNING' | 'LIVE_TARGET_NOT_CONFIRMED' | 'CHECKSUM_MISMATCH' | 'TARGET_EXISTS';
+
+  /** Human-readable, content-free explanation */
+  message: string;
+}
+
+/**
+ * Location and contents of a restore safety copy.
+ */
+export interface RestoreSafetyCopyInfo {
+  /** Directory holding the copies and `manifest.json` */
+  directory: string;
+
+  /** Path of the safety `manifest.json` */
+  manifestPath: string;
+
+  /** Number of files copied (database, `-wal`, `-shm`, journal and `workspace.json` files) */
+  fileCount: number;
 }
 
 /**
