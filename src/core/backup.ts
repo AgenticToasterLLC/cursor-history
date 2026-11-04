@@ -88,7 +88,7 @@ import {
   rollbackFromSafetyCopy,
   type CreatedRestoreSafetyCopy,
 } from './restore-safety.js';
-import { assertCursorNotRunning, CursorRunningError, ProtectedPathError } from './write-guard.js';
+import { assertCursorNotRunning, CursorRunningError } from './write-guard.js';
 import {
   groupSessionIdSpellings,
   logicalSessionIdKey,
