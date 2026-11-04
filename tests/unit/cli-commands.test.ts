@@ -1513,7 +1513,7 @@ describe('migrate command', () => {
 
     const program = createProgram();
     registerMigrateCommand(program);
-    await program.parseAsync(['node', 'test', 'migrate', '/source', '/dest']);
+    await program.parseAsync(['node', 'test', 'migrate', '/source', '/dest', '--yes']);
 
     expect(mockMigrateWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1542,7 +1542,7 @@ describe('migrate command', () => {
 
     const program = createProgram();
     registerMigrateCommand(program);
-    await program.parseAsync(['node', 'test', 'migrate', '/source', '/dest', '--copy']);
+    await program.parseAsync(['node', 'test', 'migrate', '/source', '/dest', '--copy', '--yes']);
 
     expect(mockMigrateWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1593,7 +1593,7 @@ describe('migrate command', () => {
 
     const program = createProgram();
     registerMigrateCommand(program);
-    await program.parseAsync(['node', 'test', '--json', 'migrate', '/source', '/dest']);
+    await program.parseAsync(['node', 'test', '--json', 'migrate', '/source', '/dest', '--yes']);
 
     const output = consoleSpy.mock.calls[0]![0] as string;
     const parsed = JSON.parse(output);
@@ -1636,7 +1636,7 @@ describe('migrate command', () => {
     registerMigrateCommand(program);
 
     await expect(
-      program.parseAsync(['node', 'test', 'migrate', '/source', '/dest'])
+      program.parseAsync(['node', 'test', 'migrate', '/source', '/dest', '--yes'])
     ).rejects.toThrow('process.exit');
 
     expect(exitSpy).toHaveBeenCalledWith(1);
@@ -1649,7 +1649,7 @@ describe('migrate command', () => {
     registerMigrateCommand(program);
 
     await expect(
-      program.parseAsync(['node', 'test', 'migrate', '/source', '/dest'])
+      program.parseAsync(['node', 'test', 'migrate', '/source', '/dest', '--yes'])
     ).rejects.toThrow('process.exit');
 
     expect(consoleErrorSpy).toHaveBeenCalled();
@@ -1666,7 +1666,7 @@ describe('migrate command', () => {
     registerMigrateCommand(program);
 
     await expect(
-      program.parseAsync(['node', 'test', '--json', 'migrate', '/source', '/dest'])
+      program.parseAsync(['node', 'test', '--json', 'migrate', '/source', '/dest', '--yes'])
     ).rejects.toThrow('process.exit');
 
     expect(consoleSpy).not.toHaveBeenCalled();
@@ -1690,7 +1690,7 @@ describe('migrate command', () => {
 
     const program = createProgram();
     registerMigrateCommand(program);
-    await program.parseAsync(['node', 'test', 'migrate', '/source', '/dest', '--force']);
+    await program.parseAsync(['node', 'test', 'migrate', '/source', '/dest', '--force', '--yes']);
 
     expect(mockMigrateWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1817,6 +1817,7 @@ describe('migrate-session command', () => {
       'migrate-session',
       '1',
       '/workspace/destination',
+      '--yes',
     ]);
 
     const dryRunOptions = mockMigrateSessions.mock.calls[0]?.[0] as {
@@ -1891,6 +1892,7 @@ describe('migrate-session command', () => {
         'migrate-session',
         'session-a',
         '/workspace/destination',
+        '--yes',
       ])
     ).rejects.toThrow('process.exit');
 
@@ -2340,7 +2342,7 @@ describe('global Source Read Limits command contract', () => {
     program.setOptionValue('sourceLimit', repeatedLimits);
     registerMigrateCommand(program);
 
-    await program.parseAsync(['node', 'test', 'migrate', '/source', '/destination']);
+    await program.parseAsync(['node', 'test', 'migrate', '/source', '/destination', '--yes']);
 
     expect(mockMigrateWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ sourceReadLimits: repeatedLimits })
@@ -2353,7 +2355,7 @@ describe('global Source Read Limits command contract', () => {
     program.setOptionValue('sourceLimit', repeatedLimits);
     registerMigrateSessionCommand(program);
 
-    await program.parseAsync(['node', 'test', 'migrate-session', '1', '/destination']);
+    await program.parseAsync(['node', 'test', 'migrate-session', '1', '/destination', '--yes']);
 
     expect(mockMigrateSessions).toHaveBeenCalledWith(
       expect.objectContaining({ sourceReadLimits: repeatedLimits })

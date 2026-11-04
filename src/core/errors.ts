@@ -20,7 +20,10 @@ export type SessionIntegrityErrorCode =
   | 'SOURCE_LIMIT_EXCEEDED'
   | 'SOURCE_LIMIT_CONFIGURATION_INVALID'
   | 'PROTECTED_PATH'
-  | 'CURSOR_RUNNING';
+  | 'CURSOR_RUNNING'
+  | 'MIGRATION_SAFETY_COPY_FAILED'
+  | 'INSUFFICIENT_DISK_SPACE'
+  | 'SAFETY_COPY_REQUIRED';
 
 /** JSON-safe primitive values accepted in public error details. */
 export type SafeErrorDetailValue = string | number | boolean | null | string[] | number[];

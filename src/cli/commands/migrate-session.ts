@@ -21,6 +21,7 @@ import {
 import type { MigrationMode } from '../../core/types.js';
 import type { SourceReadLimitsOverride } from '../../core/types.js';
 import { handleCommandError } from '../errors.js';
+import { assertConfirmationPossible, confirmMigrationWrite } from '../migrate-confirm.js';
 import { validateCliSourceLimitOverrides } from '../source-limit-option.js';
 
 interface MigrateSessionOptions {
@@ -30,6 +31,8 @@ interface MigrateSessionOptions {
   debug?: boolean;
   dataPath?: string;
   json?: boolean;
+  yes?: boolean;
+  safetyDir?: string;
 }
 
 export function registerMigrateSessionCommand(program: Command): void {
@@ -42,6 +45,14 @@ export function registerMigrateSessionCommand(program: Command): void {
     .option('--copy', 'Copy sessions instead of moving (keeps originals)')
     .option('-f, --force', 'Proceed even if destination has existing sessions')
     .option('--debug', 'Show detailed path transformation logs')
+    .option(
+      '-y, --yes',
+      'Confirm writing to Cursor databases without prompting (required with --json or when not a TTY)'
+    )
+    .option(
+      '--safety-dir <path>',
+      'Directory for the pre-write safety copy (default: platform cache dir)'
+    )
     .action(async (sessionArg: string, destinationArg: string, options: MigrateSessionOptions) => {
       const globalOptions = program.opts() as {
         dataPath?: string;
@@ -64,18 +75,39 @@ export function registerMigrateSessionCommand(program: Command): void {
         // Determine mode
         const mode: MigrationMode = options.copy ? 'copy' : 'move';
 
-        // Perform migration
-        const results = await migrateSessions({
+        const request = {
           selectors,
           workspacePath: globalOptions.workspace,
           destination,
           mode,
-          dryRun: options.dryRun ?? false,
           force: options.force ?? false,
           dataPath,
           debug: options.debug ?? false,
           sourceReadLimits,
-        });
+          safetyCopyDir: options.safetyDir ? expandPath(options.safetyDir) : undefined,
+        };
+        if (!(options.dryRun ?? false)) {
+          // Fail fast without consent, then preview read-only to build the warning.
+          const confirm = { yes: options.yes, json: jsonOutput, safetyDir: request.safetyCopyDir };
+          assertConfirmationPossible(confirm);
+          // --yes means consent is already given: skip the preview round trip.
+          const preview = options.yes
+            ? undefined
+            : await migrateSessions({ ...request, dryRun: true });
+          if (!preview || preview.some((item) => item.success)) {
+            await confirmMigrationWrite(
+              {
+                description: `${String(preview?.length ?? selectors.length)} session(s) ${mode === 'copy' ? 'copied' : 'moved'} to ${destination}`,
+                safetyCopyEstimateBytes: preview?.[0]?.safetyCopyEstimateBytes,
+                blockers: preview?.[0]?.blockers,
+              },
+              confirm
+            );
+          }
+        }
+
+        // Perform migration
+        const results = await migrateSessions({ ...request, dryRun: options.dryRun ?? false });
 
         // Output results
         if (jsonOutput) {
@@ -111,12 +143,27 @@ function outputResults(
     error?: string;
     dryRun: boolean;
     pathsWillBeUpdated?: boolean;
+    blockers?: Array<{ message: string }>;
+    safetyCopy?: { directory: string };
   }>,
   isDryRun: boolean
 ): void {
   if (isDryRun) {
     console.log(pc.yellow('Dry run - no changes made\n'));
   }
+
+  for (const blocker of results[0]?.blockers ?? []) {
+    console.log(
+      pc.red(`Blocked: ${blocker.message}
+`)
+    );
+  }
+  const keptAt = results.find((r) => r.safetyCopy)?.safetyCopy?.directory;
+  if (keptAt)
+    console.log(
+      pc.dim(`Safety copy kept at: ${keptAt}
+`)
+    );
 
   const successful = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
@@ -171,6 +218,11 @@ function formatError(error: unknown): string {
   }
 
   if (error instanceof Error) {
+    const kept = (error as { safetyCopyDir?: unknown }).safetyCopyDir;
+    if (typeof kept === 'string') {
+      return `${error.message}
+A safety copy of the databases was kept at: ${kept}`;
+    }
     // Check for database lock error
     if (error.message.includes('SQLITE_BUSY') || error.message.includes('database is locked')) {
       return 'Database is locked. Please close Cursor and try again.';

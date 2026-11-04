@@ -44,6 +44,16 @@ import {
   isSessionIntegrityError,
 } from './errors.js';
 import { ensureDriver, selectDatabaseDriver, type DriverName } from './database/index.js';
+import {
+  MIGRATION_BUSY_TIMEOUT_MS,
+  estimateSafetyCopyBytes,
+  evaluateMigrationBlockers,
+  prepareMigrationWrite,
+  translateBusyError,
+  type MigrationBlocker,
+  type MigrationSafetyCopy,
+  type MigrationSafetyOptions,
+} from './migrate-safety.js';
 import type { Database } from './database/types.js';
 import { resolveSourceReadLimits, SqliteSourceReadBudget } from './source-read-limits.js';
 import {
@@ -436,7 +446,7 @@ export interface MigrationBindingOptions {
 }
 
 /** Options frozen into a prepared migration before the first write. */
-export interface MigrationOptions {
+export interface MigrationOptions extends MigrationSafetyOptions {
   readonly mode: MigrationMode;
   readonly force?: boolean;
   readonly dataPath?: string;
@@ -463,6 +473,8 @@ export interface PreparedSessionMigration {
   readonly debug: boolean;
   readonly sourceReadLimits: Readonly<SourceReadLimitsV1>;
   readonly signal?: AbortSignal;
+  /** Safety-copy policy applied immediately before the first write. */
+  readonly safety?: MigrationSafetyOptions;
 }
 
 interface ComposerOccurrence {
@@ -1811,13 +1823,14 @@ export async function prepareSessionMigration(
   const destinationInfo = await findMigrationWorkspaceByPath(normalizedDest, dataPath, readGuard);
   if (!destinationInfo) throw new WorkspaceNotFoundError(normalizedDest);
 
-  const sourceDb = await openDatabaseReadWrite(frozenTarget.composerLocator.databasePath, {
+  // Preparation (and therefore every dry run) is strictly read-only.
+  const sourceDb = await openDatabase(frozenTarget.composerLocator.databasePath, {
     sqliteDriver: frozenTarget.sqliteDriver,
     signal,
   });
-  let destinationDb: Awaited<ReturnType<typeof openDatabaseReadWrite>> | null = null;
+  let destinationDb: Database | null = null;
   try {
-    destinationDb = await openDatabaseReadWrite(destinationInfo.dbPath, {
+    destinationDb = await openDatabase(destinationInfo.dbPath, {
       sqliteDriver: frozenTarget.sqliteDriver,
       signal,
     });
@@ -1861,6 +1874,7 @@ export async function prepareSessionMigration(
       debug: options.debug ?? false,
       sourceReadLimits,
       signal,
+      safety: { safetyCopyDir: options.safetyCopyDir, skipSafetyCopy: options.skipSafetyCopy },
     };
     return Object.freeze(prepared);
   } finally {
@@ -2080,7 +2094,7 @@ async function restoreGlobalSessionRows(
 ): Promise<void> {
   const globalDbPath = join(getGlobalStoragePath(dataPath), 'state.vscdb');
   if (!existsSync(globalDbPath)) return;
-  const db = await openDatabaseReadWrite(globalDbPath, { sqliteDriver });
+  const db = await openMigrationWritable(globalDbPath, { sqliteDriver });
   try {
     db.runSQL('BEGIN IMMEDIATE');
     const composerKey = `composerData:${sessionId}`;
@@ -2135,7 +2149,7 @@ async function snapshotWorkspaceComposerRow(
   guard: MigrationReadGuard
 ): Promise<WorkspaceComposerRowSnapshot> {
   throwIfMigrationAborted(guard.signal);
-  const db = await openDatabaseReadWrite(databasePath, {
+  const db = await openDatabase(databasePath, {
     sqliteDriver: guard.sqliteDriver,
     signal: guard.signal,
   });
@@ -2199,6 +2213,52 @@ interface MigrationTransactionState {
   readonly committedPaths: Set<string>;
 }
 
+/** Read-write open with a busy timeout; lock contention becomes a typed CURSOR_RUNNING error. */
+async function openMigrationWritable(
+  databasePath: string,
+  options: Parameters<typeof openDatabaseReadWrite>[1]
+): Promise<Database> {
+  const db = await openDatabaseReadWrite(databasePath, options);
+  try {
+    db.runSQL(`PRAGMA busy_timeout = ${String(MIGRATION_BUSY_TIMEOUT_MS)}`);
+    return db;
+  } catch (error) {
+    try {
+      db.close();
+    } catch {
+      // The original failure remains authoritative.
+    }
+    throw translateBusyError(error);
+  }
+}
+
+/** Every database a prepared batch writes: workspace databases plus the global one if present. */
+function migrationWriteDatabases(prepared: readonly PreparedSessionMigration[]): string[] {
+  const first = prepared[0];
+  if (!first) return [];
+  const paths = prepared.flatMap((item) => [
+    item.target.composerLocator.databasePath,
+    item.destinationDatabasePath,
+  ]);
+  const globalDatabasePath = join(getGlobalStoragePath(first.dataPath), 'state.vscdb');
+  if (existsSync(globalDatabasePath)) paths.push(globalDatabasePath);
+  return [...new Set(paths)];
+}
+
+function annotateSafetyCopy(error: unknown, safety: MigrationSafetyCopy | undefined): void {
+  if (safety && typeof error === 'object' && error !== null) {
+    try {
+      Object.defineProperty(error, 'safetyCopyDir', {
+        value: safety.directory,
+        enumerable: false,
+        configurable: true,
+      });
+    } catch {
+      // Annotation is best effort.
+    }
+  }
+}
+
 function beginMigrationTransactions(
   databases: ReadonlyMap<string, Database>
 ): MigrationTransactionState {
@@ -2219,7 +2279,7 @@ function beginMigrationTransactions(
     return state;
   } catch (error) {
     rollbackMigrationTransactions(state);
-    throw error;
+    throw translateBusyError(error);
   }
 }
 
@@ -2281,7 +2341,7 @@ function assertStoreStillAbsent(target: BoundMigrationTarget): void {
 }
 
 async function restoreWorkspaceComposerRow(snapshot: WorkspaceComposerRowSnapshot): Promise<void> {
-  const db = await openDatabaseReadWrite(snapshot.databasePath, {
+  const db = await openMigrationWritable(snapshot.databasePath, {
     sqliteDriver: snapshot.sqliteDriver,
   });
   try {
@@ -2309,13 +2369,13 @@ async function revalidatePreparedMigration(
   );
   throwIfMigrationAborted(prepared.signal);
   assertPreparedDestinationIdentity(prepared);
-  const sourceDb = await openDatabaseReadWrite(prepared.target.composerLocator.databasePath, {
+  const sourceDb = await openDatabase(prepared.target.composerLocator.databasePath, {
     sqliteDriver: prepared.target.sqliteDriver,
     signal: prepared.signal,
   });
-  let destinationDb: Awaited<ReturnType<typeof openDatabaseReadWrite>> | null = null;
+  let destinationDb: Database | null = null;
   try {
-    destinationDb = await openDatabaseReadWrite(prepared.destinationDatabasePath, {
+    destinationDb = await openDatabase(prepared.destinationDatabasePath, {
       sqliteDriver: prepared.target.sqliteDriver,
       signal: prepared.signal,
     });
@@ -2358,6 +2418,25 @@ async function applyPreparedMigrationBatch(
   prepared: readonly PreparedSessionMigration[]
 ): Promise<SessionMigrationResult[]> {
   if (prepared.length === 0) return [];
+  const first = prepared[0]!;
+  // Running check + on-disk safety copy happen before the first read-write open.
+  const safety = await prepareMigrationWrite(
+    migrationWriteDatabases(prepared),
+    first.safety,
+    first.dataPath
+  );
+  try {
+    const results = await applyPreparedMigrationBatchWrites(prepared);
+    return safety ? results.map((result) => ({ ...result, safetyCopy: safety })) : results;
+  } catch (error) {
+    annotateSafetyCopy(error, safety);
+    throw error;
+  }
+}
+
+async function applyPreparedMigrationBatchWrites(
+  prepared: readonly PreparedSessionMigration[]
+): Promise<SessionMigrationResult[]> {
   const first = prepared[0]!;
   if (
     prepared.some(
@@ -2620,7 +2699,7 @@ async function applyPreparedMigrationBatch(
     for (const databasePath of [...new Set(transactionPaths)]) {
       writableDatabases.set(
         databasePath,
-        await openDatabaseReadWrite(databasePath, {
+        await openMigrationWritable(databasePath, {
           sqliteDriver: first.target.sqliteDriver,
           signal: first.signal,
         })
@@ -2767,6 +2846,25 @@ async function applySessionMigrationInternal(
   prepared: PreparedSessionMigration,
   onFirstWrite?: () => void
 ): Promise<SessionMigrationResult> {
+  // Running check + on-disk safety copy happen before the first read-write open.
+  const safety = await prepareMigrationWrite(
+    migrationWriteDatabases([prepared]),
+    prepared.safety,
+    prepared.dataPath
+  );
+  try {
+    const result = await applySessionMigrationWrites(prepared, onFirstWrite);
+    return safety ? { ...result, safetyCopy: safety } : result;
+  } catch (error) {
+    annotateSafetyCopy(error, safety);
+    throw error;
+  }
+}
+
+async function applySessionMigrationWrites(
+  prepared: PreparedSessionMigration,
+  onFirstWrite?: () => void
+): Promise<SessionMigrationResult> {
   const { target } = prepared;
   const readGuard = createMigrationReadGuard(
     prepared.sourceReadLimits,
@@ -2780,13 +2878,13 @@ async function applySessionMigrationInternal(
     required: new Set(['readWrite']),
     forcedDriver: target.sqliteDriver,
   });
-  const sourceDb = await openDatabaseReadWrite(target.composerLocator.databasePath, {
+  const sourceDb = await openMigrationWritable(target.composerLocator.databasePath, {
     sqliteDriver: target.sqliteDriver,
     signal: prepared.signal,
   });
   let destinationDb: Awaited<ReturnType<typeof openDatabaseReadWrite>> | null = null;
   try {
-    destinationDb = await openDatabaseReadWrite(prepared.destinationDatabasePath, {
+    destinationDb = await openMigrationWritable(prepared.destinationDatabasePath, {
       sqliteDriver: target.sqliteDriver,
       signal: prepared.signal,
     });
@@ -2919,7 +3017,7 @@ async function applySessionMigrationInternal(
       [prepared.destinationDatabasePath, destinationDb],
     ]);
     if (existsSync(globalDatabasePath)) {
-      globalDatabase = await openDatabaseReadWrite(globalDatabasePath, {
+      globalDatabase = await openMigrationWritable(globalDatabasePath, {
         sqliteDriver: target.sqliteDriver,
         signal: prepared.signal,
       });
@@ -3089,8 +3187,25 @@ export async function applySessionMigration(
   return applySessionMigrationInternal(prepared);
 }
 
-function previewPreparedMigration(prepared: PreparedSessionMigration): SessionMigrationResult {
+/** Read-only dry-run facts shared by every preview of one batch. */
+function dryRunFacts(prepared: readonly PreparedSessionMigration[]): {
+  blockers?: MigrationBlocker[];
+  safetyCopyEstimateBytes: number;
+} {
+  const databases = migrationWriteDatabases(prepared);
+  const blockers = evaluateMigrationBlockers(databases);
   return {
+    ...(blockers.length > 0 ? { blockers } : {}),
+    safetyCopyEstimateBytes: estimateSafetyCopyBytes(databases),
+  };
+}
+
+function previewPreparedMigration(
+  prepared: PreparedSessionMigration,
+  facts: ReturnType<typeof dryRunFacts> = dryRunFacts([prepared])
+): SessionMigrationResult {
+  return {
+    ...facts,
     success: true,
     sessionId: prepared.target.logicalSessionId,
     sourceWorkspace: prepared.target.sourceWorkspacePath,
@@ -3155,6 +3270,8 @@ export async function migrateSession(
       debug: options.debug,
       sourceReadLimits: target.sourceReadLimits,
       signal: target.signal,
+      safetyCopyDir: options.safetyCopyDir,
+      skipSafetyCopy: options.skipSafetyCopy,
     });
     if (options.dryRun) return previewPreparedMigration(prepared);
     return await applySessionMigrationInternal(prepared);
@@ -3230,10 +3347,15 @@ export async function migrateSessions(
           debug: options.debug,
           sourceReadLimits: target.sourceReadLimits,
           signal: target.signal,
+          safetyCopyDir: options.safetyCopyDir,
+          skipSafetyCopy: options.skipSafetyCopy,
         })
       );
     }
-    if (options.dryRun) return prepared.map(previewPreparedMigration);
+    if (options.dryRun) {
+      const facts = dryRunFacts(prepared);
+      return prepared.map((item) => previewPreparedMigration(item, facts));
+    }
     return await applyPreparedMigrationBatch(prepared);
   } catch (error) {
     if (
@@ -3289,6 +3411,8 @@ export async function migrateWorkspace(
     debug = false,
     sourceReadLimits: sourceReadLimitsOverride,
     signal,
+    safetyCopyDir,
+    skipSafetyCopy,
   } = options;
   // Validation is deliberately first: malformed policy never triggers source
   // discovery, and even dry-run proves a readWrite-capable provider exists.
@@ -3389,12 +3513,17 @@ export async function migrateWorkspace(
           debug,
           sourceReadLimits: target.sourceReadLimits,
           signal: target.signal,
+          safetyCopyDir: options.safetyCopyDir,
+          skipSafetyCopy: options.skipSafetyCopy,
         })
       );
     }
     let results: SessionMigrationResult[];
+    let dryRunExtras: ReturnType<typeof dryRunFacts> | undefined;
     if (dryRun) {
-      results = prepared.map(previewPreparedMigration);
+      const facts = dryRunFacts(prepared);
+      results = prepared.map((item) => previewPreparedMigration(item, facts));
+      dryRunExtras = facts;
     } else {
       try {
         results = await applyPreparedMigrationBatch(prepared);
@@ -3423,11 +3552,15 @@ export async function migrateWorkspace(
       failureCount,
       results,
       dryRun,
+      ...(dryRunExtras ?? {}),
+      ...(results.find((result) => result.safetyCopy)
+        ? { safetyCopy: results.find((result) => result.safetyCopy)!.safetyCopy }
+        : {}),
     };
   }
 
   // Get sessions from source workspace
-  const sourceDb = await openDatabaseReadWrite(sourceInfo.dbPath, { sqliteDriver, signal });
+  const sourceDb = await openDatabase(sourceInfo.dbPath, { sqliteDriver, signal });
   let sourceResult: ComposerDataResult | null;
   try {
     sourceResult = getComposerDataBounded(sourceDb, readGuard);
@@ -3459,7 +3592,7 @@ export async function migrateWorkspace(
 
   // Check if destination has existing sessions (unless force is set)
   if (!force) {
-    const destDb = await openDatabaseReadWrite(destInfo.dbPath, { sqliteDriver, signal });
+    const destDb = await openDatabase(destInfo.dbPath, { sqliteDriver, signal });
     let destResult: ComposerDataResult | null;
     try {
       destResult = getComposerDataBounded(destDb, readGuard);
@@ -3487,6 +3620,8 @@ export async function migrateWorkspace(
         signal,
         sourceWorkspacePath: normalizedSource,
         sqliteDriver,
+        safetyCopyDir,
+        skipSafetyCopy,
       });
       results.push(result);
     } catch (error) {

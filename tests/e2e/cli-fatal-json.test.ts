@@ -369,12 +369,12 @@ describe('closed CLI fatal and Source Read Limits coverage', () => {
     ['export', ['--json', 'export', '1', '--backup', missingBackupPath], 3],
     [
       'migrate',
-      ['--json', '--data-path', missingDataPath, 'migrate', '/source', '/destination'],
+      ['--json', '--data-path', missingDataPath, 'migrate', '/source', '/destination', '--yes'],
       1,
     ],
     [
       'migrate-session',
-      ['--json', '--data-path', missingDataPath, 'migrate-session', '1', '/destination'],
+      ['--json', '--data-path', missingDataPath, 'migrate-session', '1', '/destination', '--yes'],
       1,
     ],
     ['backup', ['--json', '--data-path', missingDataPath, 'backup'], 2],
