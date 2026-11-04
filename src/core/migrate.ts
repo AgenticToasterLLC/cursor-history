@@ -63,7 +63,7 @@ import {
   getBoundedComposerMetadataByKey,
   readBoundedComposerValueByKey,
 } from './composer-sqlite.js';
-import { resolveWorkspaceScope } from './workspace-scope.js';
+import { normalizeWorkspacePath, resolveWorkspaceScope } from './workspace-scope.js';
 import { isNativeCursorUuid, logicalSessionIdKey, sessionIdsEqual } from './session-id.js';
 import type {
   ChatSessionSummary,
@@ -111,6 +111,25 @@ function transformPath(path: string, sourcePrefix: string, destPrefix: string): 
   // Normalize for comparison (handle trailing slashes)
   const normalizedSource = sourcePrefix.replace(/\/+$/, '');
   const normalizedPath = path;
+
+  if (process.platform === 'win32') {
+    // Windows paths compare case-insensitively with either separator, and a URI-style
+    // `/C:/x` spelling is the same path as `C:\x`.
+    const fold = (value: string): string => value.replace(/\\/g, '/').toLowerCase();
+    const foldedPath = fold(path);
+    const foldedSource = fold(normalizedSource).replace(/^\/(?=[a-z]:)/, '');
+    const slashed = /^\/[a-z]:/i.test(path);
+    const candidate = slashed ? '/' + foldedSource : foldedSource;
+    if (
+      foldedPath === candidate ||
+      (foldedPath.startsWith(candidate) && foldedPath[candidate.length] === '/')
+    ) {
+      const rest = path.slice(candidate.length);
+      const dest = slashed ? '/' + destPrefix.replace(/\\/g, '/') : destPrefix;
+      return dest + rest;
+    }
+    return null;
+  }
 
   // Check if path starts with source prefix
   if (normalizedPath.startsWith(normalizedSource + '/') || normalizedPath === normalizedSource) {
@@ -708,7 +727,31 @@ function contextMigrationOptions(context: SessionReadContext | undefined): {
   };
 }
 
-function normalizedPathKey(value: string): string {
+/**
+ * Convert the decoded-URI spelling `/C:/x` (as read from workspace.json) to the native
+ * `C:\x` on Windows. Other values, and every value on POSIX, are returned unchanged.
+ */
+function nativeWorkspacePath<T extends string | null>(value: T): T {
+  if (value !== null && process.platform === 'win32' && /^\/[A-Za-z]:(?:[\\/]|$)/.test(value)) {
+    return value.slice(1).replace(/\//g, '\\') as T;
+  }
+  return value;
+}
+
+/**
+ * Path identity key for membership and fingerprints. On Windows every spelling of a path
+ * (`/C:/x`, `C:/x`, `c:\x`, `file:///C:/x`) maps to one case-insensitive key by reusing the
+ * workspace-scope normalizer; POSIX keeps the case-sensitive lexical key.
+ * @internal
+ */
+export function normalizedPathKey(value: string): string {
+  if (process.platform === 'win32') {
+    try {
+      return normalizeWorkspacePath(value);
+    } catch {
+      // fall through to the lexical key
+    }
+  }
   return normalizePath(value).replace(/\\/g, '/').replace(/\/+$/, '');
 }
 
@@ -744,7 +787,7 @@ async function resolveMigrationWorkspacePath(
       if (!entry.isDirectory()) continue;
       const workspaceDirectory = join(basePath, entry.name);
       if (!existsSync(join(workspaceDirectory, 'state.vscdb'))) continue;
-      const workspacePath = readWorkspaceJson(workspaceDirectory);
+      const workspacePath = nativeWorkspacePath(readWorkspaceJson(workspaceDirectory));
       if (workspacePath) workspacePaths.push(normalizePath(workspacePath));
     }
   }
@@ -774,7 +817,7 @@ async function findMigrationWorkspaceByPath(
     const workspaceDirectory = join(basePath, entry.name);
     const databasePath = join(workspaceDirectory, 'state.vscdb');
     if (!existsSync(databasePath)) continue;
-    const path = readWorkspaceJson(workspaceDirectory);
+    const path = nativeWorkspacePath(readWorkspaceJson(workspaceDirectory));
     if (!path || !pathsEqual(path, normalizedRequest)) continue;
     return {
       workspace: {
@@ -958,7 +1001,7 @@ async function collectComposerOccurrences(
     const workspaceDir = join(basePath, entry.name);
     const databasePath = join(workspaceDir, 'state.vscdb');
     if (!existsSync(databasePath)) continue;
-    const resolvedWorkspacePath = readWorkspaceJson(workspaceDir);
+    const resolvedWorkspacePath = nativeWorkspacePath(readWorkspaceJson(workspaceDir));
     if (!resolvedWorkspacePath) complete = false;
     const workspacePath = normalizePath(
       resolvedWorkspacePath ?? `(unresolved workspace: ${entry.name})`
@@ -1733,7 +1776,7 @@ export async function bindMigrationTargets(
         membershipPaths.add(normalizedPathKey(fallbackSource.workspace.path));
         occurrence = {
           workspaceId: fallbackSource.workspace.id,
-          workspacePath: normalizePath(fallbackSource.workspace.path),
+          workspacePath: normalizePath(nativeWorkspacePath(fallbackSource.workspace.path)),
           databasePath: fallbackSource.dbPath,
           composerIndex: -1,
           composer: { composerId: sessionId },

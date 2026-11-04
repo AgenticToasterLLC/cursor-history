@@ -52,7 +52,6 @@ function newFixture(): SessionIntegrityFixtureRoot {
  * there. (Workspace-path spelling on Windows is a known pre-existing mismatch outside this change.)
  */
 function seedCorpus(fixture: SessionIntegrityFixtureRoot): void {
-  const globalSpelling = (p: string): string => (process.platform === 'win32' ? `/${p}` : p);
   const make = (
     id: string,
     title: string,
@@ -80,8 +79,8 @@ function seedCorpus(fixture: SessionIntegrityFixtureRoot): void {
   writeComposerWorkspaceSummary(fixture, 'workspace-a', fixture.projectA, [a]);
   writeComposerWorkspaceSummary(fixture, 'workspace-b', fixture.projectB, [b]);
   writeComposerGlobalSessions(fixture, [
-    { ...a, workspacePath: globalSpelling(a.workspacePath) },
-    { ...b, workspacePath: globalSpelling(b.workspacePath) },
+    { ...a, workspacePath: a.workspacePath },
+    { ...b, workspacePath: b.workspacePath },
   ]);
 }
 
