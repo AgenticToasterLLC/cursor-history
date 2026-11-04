@@ -40,6 +40,11 @@ import type {
 } from './database/types.js';
 import { registry } from './database/registry.js';
 import { backupDatabase, openDatabase } from './database/index.js';
+import {
+  assertSafeOutputPath,
+  realPathThroughAncestors,
+  ProtectedPathError,
+} from './write-guard.js';
 import { createPrivateTempWorkspace, type PrivateTempWorkspace } from './private-temp.js';
 import { PACKAGE_VERSION } from './package-version.generated.js';
 import { getCursorDataPath } from '../lib/platform.js';
@@ -650,6 +655,8 @@ async function writeAndPublishBackupArchive(
   config: Pick<BackupConfig, 'force' | 'sharedPermissions' | 'sourceReadLimits' | 'signal'>
 ): Promise<void> {
   throwIfAborted(config.signal);
+  // Defense in depth: createBackup already validated the destination against the active data path.
+  assertSafeOutputPath(outputPath, 'backup-output');
   let existingMode: number | undefined;
   if (existsSync(outputPath)) {
     const existing = lstatSync(outputPath);
@@ -740,6 +747,11 @@ export async function createBackup(config?: BackupConfig): Promise<BackupResult>
   const sharedPermissions = config?.sharedPermissions ?? false;
   const onProgress = config?.onProgress;
 
+  // Refuse protected targets (Cursor data, database-named files, junction/symlink aliases) before
+  // any filesystem write: directory creation, staging, link or rename publication. This applies
+  // regardless of `force` and to the default output path.
+  assertSafeOutputPath(outputPath, 'backup-output', config?.sourcePath);
+
   // Ensure output directory exists
   if (!existsSync(outputDir)) {
     mkdirSync(outputDir, { recursive: true });
@@ -777,6 +789,16 @@ export async function createBackup(config?: BackupConfig): Promise<BackupResult>
       durationMs: Date.now() - startTime,
       error: `No Cursor data found at: ${sourcePath}`,
     };
+  }
+
+  // The destination must never be one of the databases being backed up.
+  const realOutput = realPathThroughAncestors(outputPath);
+  const sameFile = (a: string, b: string): boolean =>
+    process.platform === 'win32' || process.platform === 'darwin'
+      ? a.toLowerCase() === b.toLowerCase()
+      : a === b;
+  if (dbFiles.some((f) => sameFile(realPathThroughAncestors(f.absolutePath), realOutput))) {
+    throw new ProtectedPathError('backup-output', 'inside-cursor-data');
   }
 
   const totalBytes = dbFiles.reduce((sum, f) => sum + f.size, 0);

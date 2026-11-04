@@ -118,7 +118,7 @@ describe('training format CLI', () => {
         true
       );
     }
-    expect((await run(['--force', '-o', output])).status).toBe(0);
+    expect((await run(['--force', '--yes', '-o', output])).status).toBe(0);
     expect(records(output)[0]!.schema).toBe('cursor-history-training/v1');
     expect(typeof records(output)[0]!.messages[1]!.tool_calls![0]!.function.arguments).toBe(
       'string'
@@ -142,7 +142,7 @@ describe('training format CLI', () => {
   });
 
   it('reports output stream errors instead of success or a hung process', async () => {
-    const result = await run(['--force', '-o', fixture.root]);
+    const result = await run(['--force', '--yes', '-o', fixture.root]);
     expect(result.timedOut).toBe(false);
     expect(result.status).not.toBe(0);
     expect(result.stdout + result.stderr).toMatch(/directory|EISDIR/i);
@@ -172,6 +172,7 @@ describe('training format CLI', () => {
       '--valid-ratio',
       '0.5',
       '--force',
+      '--yes',
       '-o',
       output,
       '--report',
@@ -196,6 +197,7 @@ describe('training format CLI', () => {
       '-o',
       output,
       '--force',
+      '--yes',
       '--valid-ratio',
       '1',
       '--report',
@@ -237,6 +239,7 @@ describe('training format CLI', () => {
       '-o',
       output,
       '--force',
+      '--yes',
       '--report',
       join(fixture.root, '.', 'train.jsonl'),
     ]);

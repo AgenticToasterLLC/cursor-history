@@ -29,6 +29,7 @@ import {
   WorkspaceAmbiguityError,
   isSessionIntegrityError,
 } from '../core/errors.js';
+import { ProtectedPathError, CursorRunningError } from '../core/write-guard.js';
 
 /**
  * Thrown when database is locked by Cursor or another process.
@@ -713,7 +714,30 @@ export {
   SourceLimitExceededError,
   SourceLimitConfigurationError,
   isSessionIntegrityError,
+  ProtectedPathError,
+  CursorRunningError,
 };
+
+/**
+ * Test whether a write was refused because its target is inside Cursor's data
+ * directories or is named like a Cursor database file.
+ *
+ * @param error - Unknown caught value.
+ * @returns True when the value is a {@link ProtectedPathError}.
+ */
+export function isProtectedPathError(error: unknown): error is ProtectedPathError {
+  return error instanceof ProtectedPathError;
+}
+
+/**
+ * Test whether an operation was refused because Cursor appears to be running.
+ *
+ * @param error - Unknown caught value.
+ * @returns True when the value is a {@link CursorRunningError}.
+ */
+export function isCursorRunningError(error: unknown): error is CursorRunningError {
+  return error instanceof CursorRunningError;
+}
 
 /**
  * Test whether a caught value is a workspace-suffix ambiguity failure.

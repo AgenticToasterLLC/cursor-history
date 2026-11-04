@@ -191,6 +191,10 @@ export {
   SourceLimitExceededError,
   SourceLimitConfigurationError,
   isSessionIntegrityError,
+  ProtectedPathError,
+  CursorRunningError,
+  isProtectedPathError,
+  isCursorRunningError,
 } from './errors.js';
 
 // Export utility functions

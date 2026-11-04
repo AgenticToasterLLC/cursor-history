@@ -8,9 +8,11 @@
 
 import type { Command } from 'commander';
 import pc from 'picocolors';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { StagedOutputs } from '../../core/staged-output.js';
+import { assertSafeOutputPath } from '../../core/write-guard.js';
+import { confirmOverwrite } from '../overwrite-confirmation.js';
 import { createTrainingQuality, addTrainingQuality } from '../../core/training-quality.js';
 import { createProgress } from '../progress.js';
 import { getSession, listSessionSummaries, createSessionReadContext } from '../../core/storage.js';
@@ -60,6 +62,7 @@ interface ExportTrainingOptions {
   systemPrompt?: string;
   systemPromptFile?: string;
   force?: boolean;
+  yes?: boolean;
   json?: boolean;
   dataPath?: string;
 }
@@ -121,7 +124,14 @@ export function registerExportTrainingCommand(program: Command): void {
     .option('--report <path>', 'Save export summary and quality counters as JSON')
     .option('--progress', 'Show progress on stderr, including when redirected or using --json')
     .option('--no-progress', 'Disable progress (default: enabled on human-readable terminals)')
-    .option('--force', 'Replace existing outputs only after the complete export succeeds')
+    .option(
+      '--force',
+      'Replace existing outputs only after the complete export succeeds (still asks for confirmation)'
+    )
+    .option(
+      '--yes',
+      'Confirm replacing existing outputs without a prompt (required with --force when non-interactive or --json)'
+    )
     .addHelpText(
       'after',
       `\nExamples:\n  cursor-history export-training -o dataset.jsonl\n  cursor-history export-training --schema trl --no-tools --no-reasoning -o sft.jsonl\n  cursor-history export-training --schema trl --tools-file tools.json -o agent.jsonl\n  cursor-history export-training --schema sharegpt -o sharegpt.jsonl\n`
@@ -207,8 +217,18 @@ export function registerExportTrainingCommand(program: Command): void {
             ExitCode.USAGE_ERROR
           );
         }
-        for (const path of targets) {
-          if (existsSync(path) && !options.force) throw new FileExistsError(path);
+        const guardDataPath = customPath ? expandPath(customPath) : undefined;
+        for (const path of targets) assertSafeOutputPath(path, 'training-output', guardDataPath);
+        const existingTargets = targets.filter((path) => existsSync(path));
+        for (const path of existingTargets) {
+          if (!options.force) throw new FileExistsError(path);
+        }
+        let overwriteConfirmed = false;
+        // Directories and other non-files are rejected later with a precise error; only files
+        // that would actually be replaced need the truncation confirmation.
+        for (const path of existingTargets.filter((p) => lstatSync(p).isFile())) {
+          await confirmOverwrite(path, { yes: options.yes || overwriteConfirmed, json: useJson });
+          overwriteConfirmed = true;
         }
 
         const projectionOptions = {
@@ -300,7 +320,7 @@ export function registerExportTrainingCommand(program: Command): void {
             (summary): summary is ChatSessionSummary => summary.resolutionState !== 'ambiguous'
           );
 
-          outputs = await StagedOutputs.create(targets, options.force);
+          outputs = await StagedOutputs.create(targets, options.force, expanded);
           progress.update(
             `Exporting 0/${sessions.length} sessions | 0 records | ${skippedAmbiguous} skipped`,
             true
