@@ -177,3 +177,59 @@ export interface CatalogStatus {
     lastError?: { code: string; at: string };
   }>;
 }
+
+// ============================================================================
+// Module APIs (signatures each workstream must export exactly)
+// ============================================================================
+
+/** Inputs that determine which files a scope's fingerprint covers. */
+export interface FingerprintInputs {
+  /** Composer workspaceStorage root, or null. */
+  dataPath: string | null;
+  /** Composer global state.vscdb path (sibling globalStorage), or null. */
+  globalDbPath: string | null;
+  /** Store root (~/.cursor or CURSOR_STORE_ROOT), or null. */
+  storeRoot: string | null;
+}
+
+/** C1 `src/core/catalog/paths.ts` */
+export type DefaultCatalogPath = (env?: NodeJS.ProcessEnv) => string;
+/** C1 `src/core/catalog/store.ts`. Throws CatalogUnavailableError (code CATALOG_UNAVAILABLE) when unusable. */
+export type OpenCatalogStore = (options?: { path?: string }) => CatalogStore;
+/** C1 `src/core/catalog/lock.ts` */
+export type CreateCatalogLock = (storePath: string) => CatalogLock;
+/** C1 `src/core/catalog/fingerprint.ts`: stat-only, never opens a database. */
+export type ComputeSourceFingerprint = (inputs: FingerprintInputs) => Promise<SourceFingerprint>;
+/** C1 `src/core/catalog/fingerprint.ts`: number of files that changed, appeared or disappeared (listing change counts as 1). */
+export type CountFingerprintChanges = (before: SourceFingerprint, after: SourceFingerprint) => number;
+/** C1 `src/core/catalog/scope-key.ts`: sha256 hex of the canonical (sorted-key) JSON of the scope key. */
+export type DigestScopeKey = (key: CatalogScopeKey) => string;
+
+/**
+ * C2 `src/core/catalog/builder.ts`: build one snapshot in the current thread
+ * (used by the worker and by strict mode). Computes the fingerprint BEFORE the
+ * direct read (so a concurrent source change makes the snapshot stale, never
+ * falsely fresh), runs the direct read with catalog:'direct', publishes atomically.
+ */
+export type BuildCatalogSnapshot = (
+  request: IndexerRequest,
+  options?: { signal?: AbortSignal }
+) => Promise<IndexerResponse>;
+
+/**
+ * C2 `src/core/catalog/refresh.ts`: fire-and-forget background build in a
+ * worker_thread. Single-flight per scope per process; cross-process via
+ * CatalogLock (if another process holds the lock, returns alreadyRunning).
+ * The worker is unref'd so it never keeps the process alive, and is
+ * terminated by cancelCatalogRefreshes().
+ */
+export type RequestCatalogRefresh = (
+  request: Omit<IndexerRequest, 'type' | 'jobId'>
+) => { jobId: string; alreadyRunning: boolean };
+/** C2: resolves when the scope's running build finishes, or undefined on timeout/none running. */
+export type WaitForCatalogBuild = (
+  scopeKeyDigest: string,
+  timeoutMs: number
+) => Promise<IndexerResponse | undefined>;
+/** C2: terminate all running build workers (process shutdown / tests). */
+export type CancelCatalogRefreshes = () => Promise<void>;
