@@ -34,6 +34,10 @@
     "test:package-smoke": "vitest run tests/e2e/package-smoke.test.ts --reporter=json --outputFile=.vitest-package-results.tmp && node scripts/verify-test-results.mjs .vitest-package-results.tmp",
     "test:release-gates": "vitest run tests/unit/verify-test-results.test.ts tests/e2e/publish-workflow.test.ts --reporter=json --outputFile=.vitest-release-results.tmp && node scripts/verify-test-results.mjs .vitest-release-results.tmp",
     "test:watch": "vitest",
+    "bench": "node scripts/perf/bench.mjs",
+    "perf:corpus": "node scripts/perf/generate-corpus.mjs",
+    "perf:snapshot": "node scripts/perf/snapshot.mjs",
+    "perf:explain": "node scripts/perf/explain.mjs",
     "typecheck": "node scripts/generate-package-version.mjs --check && tsc --noEmit"
   },
   "keywords": [
