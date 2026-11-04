@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker, type ResourceLimits } from 'node:worker_threads';
@@ -60,6 +61,7 @@ const running = new Map<string, Running>();
 const lastFinished = new Map<string, number>();
 const lastErrors = new Map<string, { code: string; at: string }>();
 const errorListeners = new Set<(digest: string, error: { code: string; at: string }) => void>();
+const storePaths = new Map<string, string>();
 let exitHookInstalled = false;
 
 /** Last build error recorded for a scope (read by C3 status). Cleared by a later success. */
@@ -74,6 +76,48 @@ export function onCatalogRefreshError(
 ): () => void {
   errorListeners.add(listener);
   return () => errorListeners.delete(listener);
+}
+
+/**
+ * Persist a refresh failure (worker crash, termination, start failure) as the scope's
+ * `lastError` in the sidecar so `getCatalogStatus` reports it. Best effort: it only touches a
+ * store file that already exists, and never throws.
+ */
+async function persistRefreshError(
+  digest: string,
+  error: { code: string; at: string }
+): Promise<void> {
+  const storePath = storePaths.get(digest);
+  if (!storePath || !existsSync(storePath)) return;
+  try {
+    const { openCatalogStoreAsync } = await import('./store.js');
+    const store = await openCatalogStoreAsync({ path: storePath });
+    try {
+      (
+        store as { recordScopeError?: (d: string, c: string, at: string) => void }
+      ).recordScopeError?.(digest, error.code, error.at);
+    } finally {
+      store.close();
+    }
+  } catch {
+    /* advisory */
+  }
+}
+
+onCatalogRefreshError((digest, error) => {
+  void persistRefreshError(digest, error);
+});
+
+function recordRefreshError(digest: string, code: string): void {
+  const err = { code, at: new Date().toISOString() };
+  lastErrors.set(digest, err);
+  for (const l of errorListeners) {
+    try {
+      l(digest, err);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export function isCatalogRefreshRunning(scopeKeyDigest: string): boolean {
@@ -134,15 +178,7 @@ function finalize(digest: string, r: Running, fallback: IndexerResponse): void {
   if (running.get(digest) === r) running.delete(digest);
   lastFinished.set(digest, Date.now());
   if (result.type === 'failed') {
-    const err = { code: result.code, at: new Date().toISOString() };
-    lastErrors.set(digest, err);
-    for (const l of errorListeners) {
-      try {
-        l(digest, err);
-      } catch {
-        /* ignore */
-      }
-    }
+    recordRefreshError(digest, result.code);
   } else if (result.type === 'done') {
     lastErrors.delete(digest);
   }
@@ -155,6 +191,7 @@ export function requestCatalogRefresh(
 ): RefreshResult {
   const { lock: createLock, digest: digestOf } = resolveSyncDeps(options);
   const digest = digestOf(request.scopeKey);
+  storePaths.set(digest, request.storePath);
 
   const existing = running.get(digest);
   if (existing) return { jobId: existing.jobId, alreadyRunning: true };
@@ -193,7 +230,7 @@ export function requestCatalogRefresh(
   } catch {
     handle.release();
     lastFinished.set(digest, Date.now());
-    lastErrors.set(digest, { code: 'WORKER_START_FAILED', at: new Date().toISOString() });
+    recordRefreshError(digest, 'WORKER_START_FAILED');
     return { jobId, alreadyRunning: false };
   }
 

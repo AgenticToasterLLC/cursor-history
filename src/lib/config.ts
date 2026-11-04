@@ -46,6 +46,7 @@ export interface ResolvedConfig {
   catalog: CatalogMode;
   catalogPath?: string;
   searchIndex: boolean;
+  searchOrder: 'match-count' | 'recent';
 }
 
 /**
@@ -160,6 +161,18 @@ export function validateConfig(config?: LibraryConfig): void {
   }
 
   if (
+    config.searchOrder !== undefined &&
+    config.searchOrder !== 'match-count' &&
+    config.searchOrder !== 'recent'
+  ) {
+    throw new InvalidConfigError(
+      'searchOrder',
+      config.searchOrder,
+      "must be one of: 'match-count', 'recent'"
+    );
+  }
+
+  if (
     config.catalogPath !== undefined &&
     (typeof config.catalogPath !== 'string' || config.catalogPath.length === 0)
   ) {
@@ -201,6 +214,7 @@ export function mergeWithDefaults(config?: LibraryConfig): ResolvedConfig {
     catalog: config?.catalog ?? 'direct',
     catalogPath: config?.catalogPath,
     searchIndex: config?.searchIndex ?? false,
+    searchOrder: config?.searchOrder ?? 'match-count',
   };
 }
 

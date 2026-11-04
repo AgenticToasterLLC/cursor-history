@@ -31,9 +31,10 @@ import type { CatalogDeps, CatalogStore } from './catalog-deps.js';
 import {
   catalogIneligibleReason,
   lookup,
+  lookupAfterBuild,
   openStore,
   reasonOf,
-  requestRefresh,
+  requestRefreshInfo,
   resolveCatalogScope,
   type ResolvedCatalogScope,
 } from './read.js';
@@ -176,7 +177,7 @@ export async function planIndexedSearch(
   try {
     scope = resolveCatalogScope({ ...config, searchIndex: true }, deps);
     store = (await openStore(config, deps)) as SearchStore;
-    let current = await deps.computeSourceFingerprint(scope.inputs);
+    const current = await deps.computeSourceFingerprint(scope.inputs);
     let found = lookup(store, deps, scope, current);
     if (found.kind !== 'ready' && mode === 'strict') {
       const response = await deps.buildCatalogSnapshot({
@@ -192,8 +193,7 @@ export async function planIndexedSearch(
           catalog: { state: 'degraded', complete: true, reason: reasonOf(response) },
         };
       } else {
-        current = await deps.computeSourceFingerprint(scope.inputs);
-        found = lookup(store, deps, scope, current);
+        found = await lookupAfterBuild(store, deps, scope);
         if (found.kind !== 'ready') {
           fallback = {
             reason: 'INDEX_BUILD_FAILED',
@@ -253,7 +253,7 @@ export async function planIndexedSearch(
             complete: false,
             snapshotBuiltAt: found.header.builtAt,
             changedSources: found.changedSources,
-            refreshScheduled: requestRefresh(deps, scope),
+            ...requestRefreshInfo(deps, scope),
           },
         };
       }
@@ -275,7 +275,7 @@ export async function planIndexedSearch(
     scope &&
     (fallback.reason === 'INDEX_BUILDING' || fallback.reason === 'INDEX_NOT_READY')
   ) {
-    fallback.catalog = { ...fallback.catalog, refreshScheduled: requestRefresh(deps, scope) };
+    fallback.catalog = { ...fallback.catalog, ...requestRefreshInfo(deps, scope) };
   }
   const final = fallback ?? {
     reason: 'CATALOG_DEGRADED',

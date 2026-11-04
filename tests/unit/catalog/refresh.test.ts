@@ -1,6 +1,12 @@
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
+import {
+  openCatalogStoreAsync,
+  type CatalogStoreExtended,
+} from '../../../src/core/catalog/store.js';
 import {
   cancelCatalogRefreshes,
   getCatalogRefreshLastError,
@@ -72,6 +78,30 @@ describe('requestCatalogRefresh', () => {
     expect(JSON.stringify(res)).not.toContain('secret');
     expect(lock.state.held.size).toBe(0);
     expect(getCatalogRefreshLastError(digest)?.code).toBe('WORKER_CRASHED');
+  });
+
+  it('persists a worker crash as the scope lastError in the sidecar', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'refresh-lasterror-'));
+    const storePath = join(dir, 'catalog.sqlite');
+    try {
+      (await openCatalogStoreAsync({ path: storePath })).close();
+      const lock = createFakeLock();
+      requestCatalogRefresh({ ...req, storePath }, opts(lock, 'throw.cjs'));
+      await waitForCatalogBuild(digest, 10_000);
+      let recorded: { code: string } | undefined;
+      for (let i = 0; i < 40 && !recorded; i++) {
+        const store = (await openCatalogStoreAsync({ path: storePath })) as CatalogStoreExtended;
+        try {
+          recorded = store.getScopeState(digest)?.lastError;
+        } finally {
+          store.close();
+        }
+        if (!recorded) await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(recorded?.code).toBe('WORKER_CRASHED');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('turns a non-zero exit into failed', async () => {

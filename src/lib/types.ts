@@ -458,6 +458,23 @@ export interface LibraryConfig {
    */
   searchIndex?: boolean;
 
+  /**
+   * Result order of {@link searchSessions} (default `'match-count'`, exactly the previous
+   * behavior: every candidate session is verified and results are ranked by match count,
+   * descending, ties in listing order).
+   *
+   * `'recent'` is a distinct, disclosed search mode: candidate sessions are verified in listing
+   * order (the direct catalog order, newest created first; ties keep the stable listing order),
+   * the search stops as soon as `limit` sessions have at least one verified match, and results
+   * are returned in that listing order, not ranked by match count. Per-session matching and every
+   * hit field are identical to the default mode: the result equals the first `limit` sessions,
+   * in listing order, of the set the default mode matches. It works with or without the search
+   * index. Ambiguous sessions are skipped or rejected exactly as in the default mode. The result
+   * array discloses `searchOrder` and `searchExhaustive` (non-enumerable); with `'recent'` and
+   * no `limit` the whole corpus is verified.
+   */
+  searchOrder?: 'match-count' | 'recent';
+
   /** Cooperatively cancel this operation and nested parsing/snapshot work. */
   signal?: AbortSignal;
 }
@@ -649,6 +666,19 @@ export type SearchResultList = SearchResult[] & {
   readonly searchMode?: 'indexed' | 'direct';
   /** Content-free reason code when `searchMode` is `'direct'` although the index was requested. */
   readonly searchModeReason?: string;
+  /**
+   * The order the results are in. Present (non-enumerable) when `searchOrder` was set:
+   * `'match-count'` ranks by match count, `'recent'` is listing order (newest created first).
+   */
+  readonly searchOrder?: 'match-count' | 'recent';
+  /**
+   * Whether every candidate session was verified. Present (non-enumerable) when `searchOrder`
+   * was set. Always true for `'match-count'`. For `'recent'` it is false when the search
+   * stopped after `limit` matching sessions while unverified candidate sessions remained, so
+   * more matching sessions may exist beyond the returned ones; true when the end of the
+   * candidates was reached (the result is then the complete first-`limit` set).
+   */
+  readonly searchExhaustive?: boolean;
   /** Catalog disclosure for an index-backed search (state, completeness; `complete: false` when stale). */
   readonly catalog?: CatalogInfo;
 };
