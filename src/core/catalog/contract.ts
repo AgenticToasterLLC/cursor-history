@@ -20,7 +20,7 @@ export const CATALOG_SCHEMA_VERSION = 2 as const;
  * summary output could change for the same sources (reader logic change), so
  * snapshots built by an older reader are never served.
  */
-export const CATALOG_PROJECTION_EPOCH = 1 as const;
+export const CATALOG_PROJECTION_EPOCH = 2 as const;
 
 /** Public catalog state reported with every catalog-backed result. */
 export type CatalogState =

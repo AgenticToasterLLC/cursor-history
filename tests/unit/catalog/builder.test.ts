@@ -30,7 +30,7 @@ function setup(workspace: string | null) {
     includeCrossWorkspaceSources: false,
     sourceReadLimits: {},
     schemaVersion: 1,
-    projectionEpoch: 1,
+    projectionEpoch: 2,
     readerVersion: 'test',
   };
   const request: IndexerRequest = {

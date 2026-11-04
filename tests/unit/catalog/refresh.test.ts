@@ -25,7 +25,7 @@ const scopeKey: CatalogScopeKey = {
   includeCrossWorkspaceSources: false,
   sourceReadLimits: {},
   schemaVersion: 1,
-  projectionEpoch: 1,
+  projectionEpoch: 2,
   readerVersion: 't',
 };
 const digest = fakeDigest(scopeKey);

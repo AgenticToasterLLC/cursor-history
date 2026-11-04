@@ -58,7 +58,7 @@ describe.each(['esm', 'cjs'] as const)('built catalog worker (%s entry)', (kind)
       includeCrossWorkspaceSources: false,
       sourceReadLimits: {},
       schemaVersion: 1,
-      projectionEpoch: 1,
+      projectionEpoch: 2,
       readerVersion: 't',
     };
     const lock = createFakeLock();
@@ -103,7 +103,7 @@ describe('kill mid-build', () => {
       includeCrossWorkspaceSources: false,
       sourceReadLimits: {},
       schemaVersion: 1,
-      projectionEpoch: 1,
+      projectionEpoch: 2,
       readerVersion: 't',
     };
     const lock = createFakeLock();
