@@ -61,13 +61,32 @@ CREATE TABLE IF NOT EXISTS snapshots (
   build_ms INTEGER NOT NULL,
   row_count INTEGER NOT NULL,
   diagnostics_json TEXT NOT NULL,
-  scope_json TEXT
+  scope_json TEXT,
+  search_indexed INTEGER NOT NULL DEFAULT 0,
+  search_message_count INTEGER,
+  search_index_bytes INTEGER
 );
 CREATE TABLE IF NOT EXISTS snapshot_rows (
   snapshot_id INTEGER NOT NULL,
   ordinal INTEGER NOT NULL,
   row_json TEXT NOT NULL,
   PRIMARY KEY (snapshot_id, ordinal)
+) WITHOUT ROWID;
+-- Opt-in search index (schema v2). Per snapshot there is one contentless FTS5 trigram table
+-- search_fts_<snapshot_id>(body) holding lowercased message text postings only (no bodies);
+-- its rowid is message_locator.row_id.
+CREATE TABLE IF NOT EXISTS search_sessions (
+  snapshot_id INTEGER NOT NULL,
+  ordinal INTEGER NOT NULL,
+  session_id TEXT NOT NULL,
+  PRIMARY KEY (snapshot_id, ordinal)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS message_locator (
+  snapshot_id INTEGER NOT NULL,
+  row_id INTEGER NOT NULL,
+  session_ordinal INTEGER NOT NULL,
+  message_index INTEGER NOT NULL,
+  PRIMARY KEY (snapshot_id, row_id)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS scope_state (
   scope_key_digest TEXT PRIMARY KEY,
@@ -88,6 +107,33 @@ export interface CatalogStoreExtended extends CatalogStore {
   getScopeState(scopeKeyDigest: string): CatalogScopeState | undefined;
   recordScopeError(scopeKeyDigest: string, code: string, at: string): void;
   listSnapshotHeaders(): CatalogSnapshotHeader[];
+  /** Start filling the search index of a published snapshot (opt-in; see contract.ts). */
+  beginSearchIndex(snapshotId: number): SearchIndexWriter;
+  /**
+   * Candidate sessions whose indexed text contains the query as a case-insensitive substring
+   * (a superset: FTS5 trigram phrase match). The query must be eligible (see search-index.ts).
+   * Returns session id -> message indexes.
+   */
+  searchCandidates(snapshotId: number, query: string): Map<string, number[]>;
+}
+
+/** Incremental writer for one snapshot's search index; only `finish()` makes it searchable. */
+export interface SearchIndexWriter {
+  /** Index one session's messages (text is indexed as given; callers pass lowercased content). */
+  addSession(sessionId: string, messages: ReadonlyArray<{ index: number; text: string }>): void;
+  /** Mark the index complete and record message count and bytes on the snapshot header. */
+  finish(): { messageCount: number; indexBytes?: number };
+  /** Drop a partially written index. */
+  abort(): void;
+}
+
+/** FTS5 phrase for a literal string: doubled quotes inside double quotes. */
+export function toFtsPhrase(query: string): string {
+  return `"${query.replaceAll('"', '""')}"`;
+}
+
+function ftsTable(snapshotId: number): string {
+  return `search_fts_${Math.trunc(snapshotId)}`;
 }
 
 /** Select a readWrite-capable driver; must complete before openCatalogStore(). */
@@ -243,6 +289,9 @@ interface SnapshotRow {
   row_count: number;
   diagnostics_json: string;
   scope_json: string | null;
+  search_indexed?: number;
+  search_message_count?: number | null;
+  search_index_bytes?: number | null;
 }
 
 function toHeader(r: SnapshotRow): CatalogSnapshotHeader {
@@ -256,6 +305,17 @@ function toHeader(r: SnapshotRow): CatalogSnapshotHeader {
     rowCount: Number(r.row_count),
     diagnosticsJson: r.diagnostics_json,
     scopeJson: r.scope_json,
+    ...(Number(r.search_indexed) === 1
+      ? {
+          searchIndexed: true,
+          ...(r.search_message_count != null
+            ? { searchMessageCount: Number(r.search_message_count) }
+            : {}),
+          ...(r.search_index_bytes != null
+            ? { searchIndexBytes: Number(r.search_index_bytes) }
+            : {}),
+        }
+      : {}),
   };
 }
 
@@ -303,8 +363,7 @@ class SqliteCatalogStore implements CatalogStoreExtended {
         .prepare('SELECT snapshot_id FROM snapshots WHERE scope_key_digest = ?')
         .get(header.scopeKeyDigest) as { snapshot_id: number } | undefined;
       if (old) {
-        db.prepare('DELETE FROM snapshot_rows WHERE snapshot_id = ?').run(old.snapshot_id);
-        db.prepare('DELETE FROM snapshots WHERE snapshot_id = ?').run(old.snapshot_id);
+        this.deleteSnapshot(Number(old.snapshot_id));
       }
       const result = db
         .prepare(
@@ -346,6 +405,127 @@ class SqliteCatalogStore implements CatalogStoreExtended {
       }
       throw error;
     }
+  }
+
+  /** Remove a snapshot with its rows and search index. Caller owns the transaction. */
+  private deleteSnapshot(id: number): void {
+    const db = this.db;
+    db.prepare('DELETE FROM snapshot_rows WHERE snapshot_id = ?').run(id);
+    this.dropSearchIndex(id);
+    db.prepare('DELETE FROM snapshots WHERE snapshot_id = ?').run(id);
+  }
+
+  private dropSearchIndex(id: number): void {
+    const db = this.db;
+    db.runSQL(`DROP TABLE IF EXISTS ${ftsTable(id)}`);
+    db.prepare('DELETE FROM message_locator WHERE snapshot_id = ?').run(id);
+    db.prepare('DELETE FROM search_sessions WHERE snapshot_id = ?').run(id);
+  }
+
+  beginSearchIndex(snapshotId: number): SearchIndexWriter {
+    const db = this.db;
+    const table = ftsTable(snapshotId);
+    db.runSQL('BEGIN IMMEDIATE');
+    try {
+      const exists = db
+        .prepare('SELECT 1 AS one FROM snapshots WHERE snapshot_id = ?')
+        .get(snapshotId);
+      if (!exists) throw new Error('snapshot not found');
+      this.dropSearchIndex(snapshotId);
+      db.runSQL(
+        `CREATE VIRTUAL TABLE ${table} USING fts5(body, content='', columnsize=0, tokenize='trigram case_sensitive 0')`
+      );
+      db.runSQL('COMMIT');
+    } catch (error) {
+      try {
+        db.runSQL('ROLLBACK');
+      } catch {
+        // ignore
+      }
+      throw error;
+    }
+    let ordinal = 0;
+    let rowId = 0;
+    // Each session is its own short transaction so the writer lock is never held across the
+    // (asynchronous, long) hydration of the next session.
+    return {
+      addSession: (sessionId, messages) => {
+        db.runSQL('BEGIN IMMEDIATE');
+        try {
+          db.prepare(
+            'INSERT INTO search_sessions (snapshot_id, ordinal, session_id) VALUES (?, ?, ?)'
+          ).run(snapshotId, ordinal, sessionId);
+          const insertFts = db.prepare(`INSERT INTO ${table} (rowid, body) VALUES (?, ?)`);
+          const insertLoc = db.prepare(
+            'INSERT INTO message_locator (snapshot_id, row_id, session_ordinal, message_index) VALUES (?, ?, ?, ?)'
+          );
+          for (const message of messages) {
+            if (message.text.length < 3) continue; // no trigram: can never match an eligible query
+            rowId += 1;
+            insertFts.run(rowId, message.text);
+            insertLoc.run(snapshotId, rowId, ordinal, message.index);
+          }
+          db.runSQL('COMMIT');
+        } catch (error) {
+          try {
+            db.runSQL('ROLLBACK');
+          } catch {
+            // ignore
+          }
+          throw error;
+        }
+        ordinal += 1;
+      },
+      finish: () => {
+        let indexBytes: number | undefined;
+        try {
+          const r = db
+            .prepare('SELECT SUM(pgsize) AS bytes FROM dbstat WHERE name LIKE ?')
+            .get(`${table}%`) as { bytes: number | null } | undefined;
+          if (r?.bytes != null) indexBytes = Number(r.bytes);
+        } catch {
+          // dbstat unavailable in this driver build
+        }
+        db.prepare(
+          'UPDATE snapshots SET search_indexed = 1, search_message_count = ?, search_index_bytes = ? WHERE snapshot_id = ?'
+        ).run(rowId, indexBytes ?? null, snapshotId);
+        return { messageCount: rowId, ...(indexBytes !== undefined ? { indexBytes } : {}) };
+      },
+      abort: () => {
+        try {
+          db.runSQL('BEGIN IMMEDIATE');
+          this.dropSearchIndex(snapshotId);
+          db.runSQL('COMMIT');
+        } catch {
+          try {
+            db.runSQL('ROLLBACK');
+          } catch {
+            // ignore
+          }
+        }
+      },
+    };
+  }
+
+  searchCandidates(snapshotId: number, query: string): Map<string, number[]> {
+    const table = ftsTable(snapshotId);
+    const rows = this.db
+      .prepare(
+        `SELECT s.session_id AS session_id, l.message_index AS message_index
+           FROM ${table} AS f
+           JOIN message_locator AS l ON l.snapshot_id = ? AND l.row_id = f.rowid
+           JOIN search_sessions AS s ON s.snapshot_id = l.snapshot_id AND s.ordinal = l.session_ordinal
+          WHERE ${table} MATCH ?
+          ORDER BY s.ordinal, l.message_index`
+      )
+      .all(snapshotId, toFtsPhrase(query)) as Array<{ session_id: string; message_index: number }>;
+    const out = new Map<string, number[]>();
+    for (const row of rows) {
+      const list = out.get(row.session_id);
+      if (list) list.push(Number(row.message_index));
+      else out.set(row.session_id, [Number(row.message_index)]);
+    }
+    return out;
   }
 
   touchVerified(snapshotId: number, verifiedAt: string): void {
@@ -402,10 +582,7 @@ class SqliteCatalogStore implements CatalogStoreExtended {
         )
         .all(Math.max(0, options.maxSnapshots)) as Array<{ snapshot_id: number }>;
       for (const r of over) doomed.add(Number(r.snapshot_id));
-      for (const id of doomed) {
-        db.prepare('DELETE FROM snapshot_rows WHERE snapshot_id = ?').run(id);
-        db.prepare('DELETE FROM snapshots WHERE snapshot_id = ?').run(id);
-      }
+      for (const id of doomed) this.deleteSnapshot(id);
       db.runSQL(
         'DELETE FROM scope_state WHERE scope_key_digest NOT IN (SELECT scope_key_digest FROM snapshots)' +
           ' AND last_error_code IS NULL'

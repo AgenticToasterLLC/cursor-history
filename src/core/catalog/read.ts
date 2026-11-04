@@ -94,6 +94,7 @@ export function resolveCatalogScope(
     schemaVersion: CATALOG_SCHEMA_VERSION,
     projectionEpoch: CATALOG_PROJECTION_EPOCH,
     readerVersion: PACKAGE_VERSION,
+    ...(config?.searchIndex === true ? { searchIndex: true as const } : {}),
   };
   const inputs: FingerprintInputs = {
     dataPath,
@@ -120,7 +121,8 @@ export function resolveCatalogScope(
   };
 }
 
-async function openStore(
+/** @internal */
+export async function openStore(
   config: LibraryConfig | undefined,
   deps: CatalogDeps
 ): Promise<CatalogStore> {
@@ -130,7 +132,8 @@ async function openStore(
 }
 
 /** Content-free reason: an upper-snake error code, else a fixed token. */
-function reasonOf(error: unknown): string {
+/** @internal */
+export function reasonOf(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(code) ? code : 'CATALOG_ERROR';
 }
@@ -139,7 +142,8 @@ function reasonOf(error: unknown): string {
 const requestedAt = new Map<string, number>();
 const BUILDING_TTL_MS = 2 * 60_000;
 
-function requestRefresh(deps: CatalogDeps, scope: ResolvedCatalogScope): boolean {
+/** @internal */
+export function requestRefresh(deps: CatalogDeps, scope: ResolvedCatalogScope): boolean {
   try {
     deps.requestCatalogRefresh({
       scopeKey: scope.scopeKey,
@@ -153,12 +157,14 @@ function requestRefresh(deps: CatalogDeps, scope: ResolvedCatalogScope): boolean
   }
 }
 
-type Lookup =
+/** @internal */
+export type Lookup =
   | { kind: 'ready'; header: CatalogSnapshotHeader }
   | { kind: 'stale'; header: CatalogSnapshotHeader; changedSources: number }
   | { kind: 'missing' };
 
-function lookup(
+/** @internal */
+export function lookup(
   store: CatalogStore,
   deps: CatalogDeps,
   scope: ResolvedCatalogScope,

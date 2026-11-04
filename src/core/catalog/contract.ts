@@ -13,7 +13,7 @@
  */
 
 /** Sidecar schema version; bump on any incompatible table change (forces rebuild). */
-export const CATALOG_SCHEMA_VERSION = 1 as const;
+export const CATALOG_SCHEMA_VERSION = 2 as const;
 
 /**
  * Compatibility epoch of the summary projection. Bump whenever direct-path
@@ -69,6 +69,12 @@ export interface CatalogScopeKey {
   projectionEpoch: typeof CATALOG_PROJECTION_EPOCH;
   /** cursor-history package version that built it. */
   readerVersion: string;
+  /**
+   * Present (true) only when the snapshot must also carry the opt-in search index. It keys the
+   * snapshot, so an indexed and a non-indexed build of the same scope never replace each other.
+   * Omitted (not false) otherwise so digests of non-indexed scopes are unchanged.
+   */
+  searchIndex?: true;
 }
 
 /** One fingerprinted source file. Missing files are recorded with exists=false. */
@@ -111,6 +117,20 @@ export interface CatalogSnapshotHeader {
   diagnosticsJson: string;
   /** Scope outcome the direct path returned (WorkspaceScopeResolution JSON) or null. */
   scopeJson: string | null;
+  /**
+   * Search index (schema v2, opt-in). True only after the index pass finished for THIS snapshot
+   * (header written by the store when the index writer completes). Absent/false means
+   * "summary-only"; verified search then falls back to the direct scan.
+   *
+   * Sensitivity: the index is a contentless FTS5 trigram table. No message body is stored, but
+   * trigram postings still let someone with the sidecar infer substrings of the indexed text
+   * (which is the lowercased message `content` the matcher sees). It is therefore opt-in.
+   */
+  searchIndexed?: boolean;
+  /** Number of message rows in the search index (content-free count). */
+  searchMessageCount?: number;
+  /** Approximate on-disk bytes of the search index (FTS5 shadow tables); absent if the driver cannot report it. */
+  searchIndexBytes?: number;
 }
 
 /**

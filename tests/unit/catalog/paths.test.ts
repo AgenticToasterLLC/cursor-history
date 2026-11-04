@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { defaultCatalogPath, isInsideCursorDataDir } from '../../../src/core/catalog/paths.js';
+import { CATALOG_SCHEMA_VERSION } from '../../../src/core/catalog/contract.js';
 import { digestScopeKey } from '../../../src/core/catalog/scope-key.js';
 
 describe('catalog paths', () => {
@@ -16,7 +17,9 @@ describe('catalog paths', () => {
       LOCALAPPDATA: join(homedir(), 'AppData', 'Local'),
       XDG_CACHE_HOME: join(homedir(), 'xdg'),
     });
-    expect(p).toMatch(/cursor-history[\\/]catalog-v1\.sqlite$/u);
+    expect(p).toMatch(
+      new RegExp(`cursor-history[\\\\/]catalog-v${CATALOG_SCHEMA_VERSION}\\.sqlite$`, 'u')
+    );
   });
 
   it('refuses paths inside Cursor data dirs', () => {
