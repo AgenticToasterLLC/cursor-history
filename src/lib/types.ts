@@ -747,6 +747,17 @@ export interface MigrateSessionConfig {
 
   /** Cooperatively cancel before mutation or between bounded stages. */
   signal?: AbortSignal;
+  /**
+   * Directory for the pre-write safety copy. Defaults to the platform cache dir
+   * (`cursor-history/migrate-safety/<timestamp>-<id>/`). Must be outside Cursor's data.
+   * Copying a multi-GB global database can take minutes; copies are never deleted automatically.
+   */
+  safetyCopyDir?: string;
+  /**
+   * Skip the safety copy. Refused (SAFETY_COPY_REQUIRED) when the databases live in the
+   * platform-default Cursor directory; only usable with a custom data path or test fixtures.
+   */
+  skipSafetyCopy?: boolean;
 }
 
 /**
@@ -776,6 +787,17 @@ export interface MigrateWorkspaceConfig {
 
   /** Cooperatively cancel before mutation or between bounded stages. */
   signal?: AbortSignal;
+  /**
+   * Directory for the pre-write safety copy. Defaults to the platform cache dir
+   * (`cursor-history/migrate-safety/<timestamp>-<id>/`). Must be outside Cursor's data.
+   * Copying a multi-GB global database can take minutes; copies are never deleted automatically.
+   */
+  safetyCopyDir?: string;
+  /**
+   * Skip the safety copy. Refused (SAFETY_COPY_REQUIRED) when the databases live in the
+   * platform-default Cursor directory; only usable with a custom data path or test fixtures.
+   */
+  skipSafetyCopy?: boolean;
 }
 
 /**
@@ -805,6 +827,17 @@ export interface SessionMigrationResult {
 
   /** Whether this was a dry run */
   dryRun: boolean;
+  /** Dry run: conditions that would block a real migration (for example Cursor running). */
+  blockers?: Array<{ code: 'CURSOR_RUNNING'; message: string; evidence: string[] }>;
+  /** Dry run: bytes the pre-write safety copy would need (copying can take minutes for large databases). */
+  safetyCopyEstimateBytes?: number;
+  /** Real run: the on-disk safety copy taken before writing (never deleted automatically). */
+  safetyCopy?: {
+    directory: string;
+    manifestPath: string;
+    totalBytes: number;
+    files: Array<{ path: string; originalPath: string; size: number; sha256: string }>;
+  };
 
   /** Public-safe eligibility; private database locators are never returned. */
   eligibility?:
@@ -855,6 +888,17 @@ export interface WorkspaceMigrationResult {
 
   /** Whether this was a dry run */
   dryRun: boolean;
+  /** Dry run: conditions that would block a real migration (for example Cursor running). */
+  blockers?: Array<{ code: 'CURSOR_RUNNING'; message: string; evidence: string[] }>;
+  /** Dry run: bytes the pre-write safety copy would need (copying can take minutes for large databases). */
+  safetyCopyEstimateBytes?: number;
+  /** Real run: the on-disk safety copy taken before writing (never deleted automatically). */
+  safetyCopy?: {
+    directory: string;
+    manifestPath: string;
+    totalBytes: number;
+    files: Array<{ path: string; originalPath: string; size: number; sha256: string }>;
+  };
 }
 
 // ============================================================================

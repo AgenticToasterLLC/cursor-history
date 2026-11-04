@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Migration safety: `migrateSession`/`migrateWorkspace` (and the CLI) now refuse to write
+  while Cursor appears to be running (`CURSOR_RUNNING`, also for `SQLITE_BUSY`/`LOCKED`,
+  with a 5 s `busy_timeout`), and first save a verified SQLite online-backup copy of every
+  database they will write under the platform cache dir (`safetyCopyDir` overrides; reported as
+  `safetyCopy` with a sha256 manifest; never deleted automatically; can take minutes for a
+  multi-GB global database). New typed errors `MIGRATION_SAFETY_COPY_FAILED`,
+  `INSUFFICIENT_DISK_SPACE` and `SAFETY_COPY_REQUIRED` (`skipSafetyCopy` is refused for the
+  default Cursor directory). Dry runs are strictly read-only and report `blockers` and
+  `safetyCopyEstimateBytes`. CLI: `migrate` and `migrate-session` print a warning and require
+  typing `migrate`, or `--yes` without a TTY / with `--json`; `--safety-dir` added.
 - Optional sidecar catalog (`LibraryConfig.catalog: 'auto' | 'strict'`, default `'direct'`).
   It caches the exact direct-read summary rows for each read scope, keyed by a stat-only
   fingerprint of every source file, including each `-wal`, `workspace.json`, the Store

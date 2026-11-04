@@ -23,6 +23,7 @@ import {
 import type { MigrationMode, WorkspaceMigrationResult } from '../../core/types.js';
 import type { SourceReadLimitsOverride } from '../../core/types.js';
 import { handleCommandError } from '../errors.js';
+import { assertConfirmationPossible, confirmMigrationWrite } from '../migrate-confirm.js';
 import { validateCliSourceLimitOverrides } from '../source-limit-option.js';
 
 interface MigrateOptions {
@@ -32,6 +33,8 @@ interface MigrateOptions {
   debug?: boolean;
   dataPath?: string;
   json?: boolean;
+  yes?: boolean;
+  safetyDir?: string;
 }
 
 export function registerMigrateCommand(program: Command): void {
@@ -44,6 +47,14 @@ export function registerMigrateCommand(program: Command): void {
     .option('--copy', 'Copy sessions instead of moving (keeps originals)')
     .option('-f, --force', 'Proceed even if destination has existing sessions')
     .option('--debug', 'Show detailed path transformation logs')
+    .option(
+      '-y, --yes',
+      'Confirm writing to Cursor databases without prompting (required with --json or when not a TTY)'
+    )
+    .option(
+      '--safety-dir <path>',
+      'Directory for the pre-write safety copy (default: platform cache dir)'
+    )
     .action(async (sourceArg: string, destinationArg: string, options: MigrateOptions) => {
       const globalOptions = program.opts() as {
         dataPath?: string;
@@ -62,17 +73,36 @@ export function registerMigrateCommand(program: Command): void {
         // Determine mode
         const mode: MigrationMode = options.copy ? 'copy' : 'move';
 
-        // Perform migration
-        const result = await migrateWorkspace({
+        const request = {
           source,
           destination,
           mode,
-          dryRun: options.dryRun ?? false,
           force: options.force ?? false,
           dataPath,
           debug: options.debug ?? false,
           sourceReadLimits,
-        });
+          safetyCopyDir: options.safetyDir ? expandPath(options.safetyDir) : undefined,
+        };
+        if (!(options.dryRun ?? false)) {
+          // Fail fast without consent, then preview read-only to build the warning.
+          const confirm = { yes: options.yes, json: jsonOutput, safetyDir: request.safetyCopyDir };
+          assertConfirmationPossible(confirm);
+          // --yes means consent is already given: skip the preview round trip.
+          const preview = options.yes
+            ? undefined
+            : await migrateWorkspace({ ...request, dryRun: true });
+          await confirmMigrationWrite(
+            {
+              description: `${preview ? `${String(preview.totalSessions)} session(s)` : 'all sessions'} ${mode === 'copy' ? 'copied' : 'moved'} from ${source} to ${destination}`,
+              safetyCopyEstimateBytes: preview?.safetyCopyEstimateBytes,
+              blockers: preview?.blockers,
+            },
+            confirm
+          );
+        }
+
+        // Perform migration
+        const result = await migrateWorkspace({ ...request, dryRun: options.dryRun ?? false });
 
         // Output results
         if (jsonOutput) {
@@ -99,6 +129,19 @@ export function registerMigrateCommand(program: Command): void {
 function outputResult(result: WorkspaceMigrationResult): void {
   if (result.dryRun) {
     console.log(pc.yellow('Dry run - no changes made\n'));
+  }
+
+  for (const blocker of result.blockers ?? []) {
+    console.log(
+      pc.red(`Blocked: ${blocker.message}
+`)
+    );
+  }
+  if (result.safetyCopy) {
+    console.log(
+      pc.dim(`Safety copy kept at: ${result.safetyCopy.directory}
+`)
+    );
   }
 
   const action = result.dryRun ? 'Would migrate' : 'Migrated';
@@ -153,6 +196,11 @@ function formatError(error: unknown): string {
   }
 
   if (error instanceof Error) {
+    const kept = (error as { safetyCopyDir?: unknown }).safetyCopyDir;
+    if (typeof kept === 'string') {
+      return `${error.message}
+A safety copy of the databases was kept at: ${kept}`;
+    }
     // Check for database lock error
     if (error.message.includes('SQLITE_BUSY') || error.message.includes('database is locked')) {
       return 'Database is locked. Please close Cursor and try again.';

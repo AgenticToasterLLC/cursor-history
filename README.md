@@ -566,6 +566,13 @@ cursor-history migrate --copy /project /backup/project
 cursor-history migrate --force /old/project /existing/project
 ```
 
+**Migration writes to Cursor's live databases, so it is guarded:**
+
+- Quit Cursor completely first. A real migration is refused (`CURSOR_RUNNING`) while Cursor appears to be running, and a locked database is reported the same way. `--dry-run` never writes anything and reports this as a `blockers` entry instead of failing.
+- Before the first write, a consistent copy of every database that will be written (the global `state.vscdb` and each involved workspace `state.vscdb`) is saved with the SQLite online backup API, verified with `PRAGMA integrity_check` and described by a `manifest.json` (sizes and sha256). The default location is `<platform cache dir>/cursor-history/migrate-safety/<timestamp>-<id>/` (`%LOCALAPPDATA%` on Windows); override it with `--safety-dir` or `safetyCopyDir`. If the copy fails or the disk is too small, nothing is written. **Copying a large global database (several GB) can take minutes**, and safety copies are never deleted automatically.
+- The CLI prints a warning and asks you to type `migrate` to continue. Without a terminal, or with `--json`, pass `--yes` instead.
+- The library option `skipSafetyCopy` exists for custom data paths and test fixtures only; it is refused for the platform-default Cursor directory because real data must always be recoverable.
+
 ### Backup & Restore
 
 Backup archives contain Composer `state.vscdb` data. They do not include Store databases, Agent transcripts, or ACP session stores. Export readable sessions from those sources to Markdown or JSON when you need a portable copy; exports are not restorable backup archives.

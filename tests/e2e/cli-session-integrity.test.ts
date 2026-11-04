@@ -297,7 +297,7 @@ describe('built migrate-session workspace integrity', () => {
 
     for (const selector of ['1', sessionId]) {
       const migrateRun = await runBuiltCli(
-        ['--json', ...common, 'migrate-session', selector, destination],
+        ['--json', ...common, 'migrate-session', selector, destination, '--yes'],
         { env, timeoutMs: 20_000 }
       );
       expect(migrateRun).toMatchObject({ status: 1, stdout: '', timedOut: false });
@@ -356,7 +356,7 @@ describe('built migrate-session workspace integrity', () => {
     });
     expect(preview[0]?.sessionId).not.toBe(sessionB.id);
 
-    const applyRun = await runBuiltCli(commonArgs, { env, timeoutMs: 20_000 });
+    const applyRun = await runBuiltCli([...commonArgs, '--yes'], { env, timeoutMs: 20_000 });
     expect(applyRun).toMatchObject({ status: 0, signal: null, timedOut: false });
     expect(applyRun.stderr).toBe('');
     const applied = JSON.parse(applyRun.stdout) as CliMigrationResult[];
@@ -429,7 +429,10 @@ describe('built migrate-session workspace integrity', () => {
     const before = mutationSnapshot();
 
     for (const extra of [[], ['--dry-run']] as const) {
-      const rejected = await runBuiltCli([...common, ...extra], { env, timeoutMs: 20_000 });
+      const rejected = await runBuiltCli([...common, ...extra, '--yes'], {
+        env,
+        timeoutMs: 20_000,
+      });
       expect(rejected).toMatchObject({ status: 1, stdout: '', timedOut: false });
       expect(JSON.parse(rejected.stderr)).toMatchObject({
         error: expect.stringContaining('Destination already has 1 session(s)'),
@@ -437,7 +440,7 @@ describe('built migrate-session workspace integrity', () => {
       expect(mutationSnapshot()).toEqual(before);
     }
 
-    const forced = await runBuiltCli([...common, '--force'], { env, timeoutMs: 20_000 });
+    const forced = await runBuiltCli([...common, '--force', '--yes'], { env, timeoutMs: 20_000 });
     expect(forced).toMatchObject({ status: 0, stderr: '', timedOut: false });
     const results = JSON.parse(forced.stdout) as CliMigrationResult[];
     expect(results).toHaveLength(2);

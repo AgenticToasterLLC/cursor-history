@@ -1869,6 +1869,8 @@ export async function migrateSession(
     dataPath: config.dataPath,
     sourceReadLimits: config.sourceReadLimits,
     signal: config.signal,
+    safetyCopyDir: config.safetyCopyDir,
+    skipSafetyCopy: config.skipSafetyCopy,
   });
 }
 
@@ -1927,6 +1929,8 @@ export async function migrateWorkspace(
     dataPath: config.dataPath,
     sourceReadLimits: config.sourceReadLimits,
     signal: config.signal,
+    safetyCopyDir: config.safetyCopyDir,
+    skipSafetyCopy: config.skipSafetyCopy,
   });
 }
 
