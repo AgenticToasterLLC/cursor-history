@@ -127,7 +127,10 @@ export interface CatalogStore {
    */
   readRows(snapshotId: number, offset: number, limit: number | 'all'): string[];
   /** Atomically publish a complete snapshot (rows in order); replaces the scope's previous one in one transaction. */
-  publishSnapshot(header: Omit<CatalogSnapshotHeader, 'snapshotId'>, rowsJson: Iterable<string>): number;
+  publishSnapshot(
+    header: Omit<CatalogSnapshotHeader, 'snapshotId'>,
+    rowsJson: Iterable<string>
+  ): number;
   /** Record a successful verification time without rebuilding. */
   touchVerified(snapshotId: number, verifiedAt: string): void;
   /** Delete snapshots not used for N days / beyond a count cap. */
@@ -201,7 +204,10 @@ export type CreateCatalogLock = (storePath: string) => CatalogLock;
 /** C1 `src/core/catalog/fingerprint.ts`: stat-only, never opens a database. */
 export type ComputeSourceFingerprint = (inputs: FingerprintInputs) => Promise<SourceFingerprint>;
 /** C1 `src/core/catalog/fingerprint.ts`: number of files that changed, appeared or disappeared (listing change counts as 1). */
-export type CountFingerprintChanges = (before: SourceFingerprint, after: SourceFingerprint) => number;
+export type CountFingerprintChanges = (
+  before: SourceFingerprint,
+  after: SourceFingerprint
+) => number;
 /** C1 `src/core/catalog/scope-key.ts`: sha256 hex of the canonical (sorted-key) JSON of the scope key. */
 export type DigestScopeKey = (key: CatalogScopeKey) => string;
 
@@ -223,9 +229,10 @@ export type BuildCatalogSnapshot = (
  * The worker is unref'd so it never keeps the process alive, and is
  * terminated by cancelCatalogRefreshes().
  */
-export type RequestCatalogRefresh = (
-  request: Omit<IndexerRequest, 'type' | 'jobId'>
-) => { jobId: string; alreadyRunning: boolean };
+export type RequestCatalogRefresh = (request: Omit<IndexerRequest, 'type' | 'jobId'>) => {
+  jobId: string;
+  alreadyRunning: boolean;
+};
 /** C2: resolves when the scope's running build finishes, or undefined on timeout/none running. */
 export type WaitForCatalogBuild = (
   scopeKeyDigest: string,
