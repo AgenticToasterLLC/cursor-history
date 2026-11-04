@@ -45,7 +45,7 @@ export function makeSidecarDir(): { dir: string; catalogPath: string; cleanup():
   const dir = mkdtempSync(join(tmpdir(), 'ch-catalog-e2e-sidecar-'));
   return {
     dir,
-    catalogPath: join(dir, 'catalog.sqlite'),
+    catalogPath: join(dir, 'catalog-v2.sqlite'),
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 }

@@ -37,7 +37,15 @@ import {
   type SourceFingerprint,
 } from './contract.js';
 import { CatalogUnavailableError } from './errors.js';
+import {
+  CATALOG_APPLICATION_ID,
+  CATALOG_MARKER_KEY,
+  CATALOG_MARKER_VALUE,
+  classifyHeader,
+  hasDefaultCatalogName,
+} from './identity.js';
 import { defaultCatalogPath } from './paths.js';
+import { assertSafeOutputPath } from '../write-guard.js';
 
 const BUSY_TIMEOUT_MS = 5000;
 
@@ -173,17 +181,21 @@ function createOwnerOnly(path: string): void {
   }
 }
 
+const notACatalog = (): CatalogUnavailableError =>
+  new CatalogUnavailableError('Path is not a cursor-history catalog', 'NOT_A_CATALOG');
+
+/**
+ * Move a positively identified catalog aside and drop its own -wal/-shm.
+ * Callers must have identified the file as ours; there is no unlink fallback,
+ * so a failed rename leaves everything in place and throws.
+ */
 function moveAside(path: string): void {
   const stamp = `${Date.now()}-${process.pid}`;
   try {
     renameSync(path, `${path}.corrupt-${stamp}`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      try {
-        unlinkSync(path);
-      } catch {
-        throw new CatalogUnavailableError('Catalog file is corrupt and cannot be replaced');
-      }
+      throw new CatalogUnavailableError('Catalog file is corrupt and cannot be replaced');
     }
   }
   for (const suffix of ['-wal', '-shm']) {
@@ -203,44 +215,103 @@ function readMeta(db: Database): Map<string, string> {
   return new Map(rows.map((r) => [r.key, r.value]));
 }
 
-/** Open + validate. Throws a plain Error on corruption/incompatibility (recoverable). */
-function openAndInit(path: string): Database {
+/** Verdict on an existing file; only `ours` and `ours-reset` permit any modification. */
+type Identity = 'absent' | 'ours' | 'ours-reset' | 'foreign';
+
+/**
+ * Identify an existing file READ-ONLY (no pragma writes, no journal change).
+ * `ours-reset` means it is ours (or unambiguously a recoverable file at the
+ * default catalog name) but unusable, so it may be moved aside.
+ */
+function identify(path: string): Identity {
+  const kind = classifyHeader(path);
+  const defaultName = hasDefaultCatalogName(path);
+  switch (kind) {
+    case 'absent':
+      return 'absent';
+    case 'empty':
+      return defaultName ? 'absent' : 'foreign';
+    case 'not-sqlite':
+      return defaultName ? 'ours-reset' : 'foreign';
+    case 'ours':
+    case 'sqlite-other':
+      break;
+  }
+  let db: Database;
+  try {
+    db = registry.openSync(path, { readonly: true });
+  } catch (error) {
+    if (isBusy(error)) throw error;
+    return kind === 'ours' ? 'ours-reset' : 'foreign';
+  }
+  try {
+    let meta: Map<string, string>;
+    let tables: string[];
+    try {
+      tables = (
+        db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+          name: string;
+        }>
+      ).map((r) => r.name);
+      meta = tables.includes('meta') ? readMeta(db) : new Map();
+    } catch (error) {
+      if (isBusy(error)) throw error;
+      return kind === 'ours' ? 'ours-reset' : 'foreign';
+    }
+    if (kind === 'ours') {
+      if (meta.get(CATALOG_MARKER_KEY) === CATALOG_MARKER_VALUE) return 'ours';
+      // application_id is ours but the marker is missing: do not touch it unless it is empty.
+      return tables.length === 0 ? 'ours-reset' : 'foreign';
+    }
+    // Pre-marker catalog: only at the default file name with exactly our table set.
+    const legacy =
+      defaultName &&
+      meta.has('schema_version') &&
+      meta.has('projection_epoch') &&
+      ['meta', 'snapshots', 'snapshot_rows', 'scope_state'].every((t) => tables.includes(t));
+    return legacy ? 'ours-reset' : 'foreign';
+  } finally {
+    try {
+      db.close();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/** Thrown for an identified catalog whose schema/epoch does not match (resettable). */
+class CatalogMismatchError extends Error {}
+
+/** Create a brand-new catalog in an absent/empty file (never on existing content). */
+function createFresh(path: string): Database {
   createOwnerOnly(path);
   const db = registry.openSync(path, { readonly: false });
   try {
     db.runSQL(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
+    const appRow = db.prepare('PRAGMA application_id').get() as
+      { application_id?: number } | undefined;
+    if (tables.length !== 0 || Number(appRow?.application_id ?? 0) !== 0) throw notACatalog();
+    // application_id first, while still in rollback-journal mode, so it lives in the main file.
+    db.runSQL(`PRAGMA application_id = ${CATALOG_APPLICATION_ID}`);
     db.prepare('PRAGMA journal_mode = WAL').get();
     db.runSQL('PRAGMA synchronous = NORMAL');
-    const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .all() as Array<{
-      name: string;
-    }>;
-    if (tables.length === 0) {
-      db.runSQL('BEGIN IMMEDIATE');
+    db.runSQL('BEGIN IMMEDIATE');
+    try {
+      db.runSQL(CATALOG_SCHEMA_DDL);
+      const ins = db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)');
+      ins.run(CATALOG_MARKER_KEY, CATALOG_MARKER_VALUE);
+      ins.run('schema_version', String(CATALOG_SCHEMA_VERSION));
+      ins.run('projection_epoch', String(CATALOG_PROJECTION_EPOCH));
+      ins.run('created_at', new Date().toISOString());
+      db.runSQL('COMMIT');
+    } catch (error) {
       try {
-        db.runSQL(CATALOG_SCHEMA_DDL);
-        const ins = db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)');
-        ins.run('schema_version', String(CATALOG_SCHEMA_VERSION));
-        ins.run('projection_epoch', String(CATALOG_PROJECTION_EPOCH));
-        ins.run('created_at', new Date().toISOString());
-        db.runSQL('COMMIT');
-      } catch (error) {
-        try {
-          db.runSQL('ROLLBACK');
-        } catch {
-          // ignore
-        }
-        throw error;
+        db.runSQL('ROLLBACK');
+      } catch {
+        // ignore
       }
-      return db;
-    }
-    const meta = readMeta(db);
-    if (
-      meta.get('schema_version') !== String(CATALOG_SCHEMA_VERSION) ||
-      meta.get('projection_epoch') !== String(CATALOG_PROJECTION_EPOCH)
-    ) {
-      throw new Error('catalog schema or projection epoch mismatch');
+      throw error;
     }
     return db;
   } catch (error) {
@@ -253,28 +324,76 @@ function openAndInit(path: string): Database {
   }
 }
 
-/** Open (creating or recovering) the sidecar store. Synchronous; see module comment. */
+/** Open a file already identified as our catalog and validate schema + epoch. */
+function openExisting(path: string): Database {
+  const db = registry.openSync(path, { readonly: false });
+  try {
+    db.runSQL(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    db.prepare('PRAGMA journal_mode = WAL').get();
+    db.runSQL('PRAGMA synchronous = NORMAL');
+    const meta = readMeta(db);
+    if (
+      meta.get(CATALOG_MARKER_KEY) !== CATALOG_MARKER_VALUE ||
+      meta.get('schema_version') !== String(CATALOG_SCHEMA_VERSION) ||
+      meta.get('projection_epoch') !== String(CATALOG_PROJECTION_EPOCH)
+    ) {
+      throw new CatalogMismatchError('catalog schema or projection epoch mismatch');
+    }
+    return db;
+  } catch (error) {
+    try {
+      db.close();
+    } catch {
+      // ignore
+    }
+    throw error;
+  }
+}
+
+/**
+ * Open (creating or recovering) the sidecar store. Synchronous; see module comment.
+ *
+ * Safety: the path must pass the shared write guard, and an existing file is
+ * modified/renamed/deleted only when positively identified as a catalog.
+ */
 export function openCatalogStore(options?: { path?: string }): CatalogStoreExtended {
   const path = options?.path ?? defaultCatalogPath();
+  assertSafeOutputPath(path, 'catalog');
   if (!registry.hasActiveDriver()) {
     throw new CatalogUnavailableError('Catalog driver not prepared');
   }
+  const unavailable = (error: unknown): never => {
+    if (error instanceof CatalogUnavailableError) throw error;
+    if (isBusy(error)) throw new CatalogUnavailableError('Catalog is locked by another process');
+    throw new CatalogUnavailableError('Catalog could not be opened or recreated');
+  };
+  let identity: Identity;
+  try {
+    identity = identify(path);
+  } catch (error) {
+    return unavailable(error);
+  }
+  if (identity === 'foreign') throw notACatalog();
+
   let db: Database | undefined;
   try {
-    db = openAndInit(path);
-  } catch (first) {
-    if (first instanceof CatalogUnavailableError || isBusy(first)) {
-      throw first instanceof CatalogUnavailableError
-        ? first
-        : new CatalogUnavailableError('Catalog is locked by another process');
-    }
-    try {
+    if (identity === 'absent') {
+      db = createFresh(path);
+    } else if (identity === 'ours') {
+      try {
+        db = openExisting(path);
+      } catch (first) {
+        if (first instanceof CatalogUnavailableError || isBusy(first)) throw first;
+        // Identified as ours before opening: schema/epoch mismatch or corruption.
+        moveAside(path);
+        db = createFresh(path);
+      }
+    } else {
       moveAside(path);
-      db = openAndInit(path);
-    } catch (second) {
-      if (second instanceof CatalogUnavailableError) throw second;
-      throw new CatalogUnavailableError('Catalog could not be opened or recreated');
+      db = createFresh(path);
     }
+  } catch (error) {
+    return unavailable(error);
   }
   return new SqliteCatalogStore(path, db);
 }

@@ -18,6 +18,7 @@
  *  4. `release` unlinks the lock only if it still carries our nonce.
  */
 import { randomBytes } from 'node:crypto';
+import { assertAcceptableCatalogPath } from './identity.js';
 import {
   closeSync,
   mkdirSync,
@@ -152,6 +153,8 @@ function recoverStale(path: string, ttlMs: number, nonce: string): boolean {
 
 /** Create a lock manager whose lockfiles live in `<storePath>.locks/`. */
 export function createCatalogLock(storePath: string): CatalogLock {
+  // Lock files may only live next to an accepted catalog path (guard + identity).
+  assertAcceptableCatalogPath(storePath);
   const dir = `${storePath}.locks`;
   return {
     tryAcquire(scopeKeyDigest: string, ttlMs: number) {

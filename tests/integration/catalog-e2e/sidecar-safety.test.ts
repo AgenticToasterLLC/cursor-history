@@ -87,15 +87,22 @@ describe('corrupt sidecar', () => {
     });
   }, 120_000);
 
-  it('valid SQLite file with a foreign schema', async () => {
-    await assertSurvives('foreign', () => {
-      for (const suffix of ['-wal', '-shm'])
-        rmSync(`${sidecar.catalogPath}${suffix}`, { force: true });
-      rmSync(sidecar.catalogPath, { force: true });
-      const db = new BetterSqlite3(sidecar.catalogPath);
-      db.exec('CREATE TABLE unrelated (a TEXT); INSERT INTO unrelated VALUES (1)');
-      db.close();
-    });
+  it('valid SQLite file with a foreign schema is refused, not replaced', async () => {
+    expect(await buildAndWait({ ...cfg, catalog: 'auto' })).toBe(true);
+    for (const suffix of ['-wal', '-shm'])
+      rmSync(`${sidecar.catalogPath}${suffix}`, { force: true });
+    rmSync(sidecar.catalogPath, { force: true });
+    const db = new BetterSqlite3(sidecar.catalogPath);
+    db.exec('CREATE TABLE unrelated (a TEXT); INSERT INTO unrelated VALUES (1)');
+    db.close();
+    const before = hashTree(sidecar.dir);
+    const direct = comparable(await read({ ...cfg, catalog: 'direct' }));
+    for (const mode of ['auto', 'strict'] as const) {
+      const after = await read({ ...cfg, catalog: mode });
+      expect(catalogOf(after)).toMatchObject({ state: 'degraded', complete: true });
+      expect(comparable(after)).toEqual(direct);
+    }
+    expect(hashTree(sidecar.dir)).toEqual(before);
   }, 120_000);
 
   it('garbage with no prior snapshot (cold) also degrades without throwing', async () => {

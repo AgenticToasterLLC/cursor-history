@@ -1,5 +1,13 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -100,9 +108,18 @@ describe('catalog store', () => {
     store.close();
   });
 
-  it('recovers from a corrupt file by renaming it aside', () => {
+  it('refuses garbage at a non-default name and leaves it untouched', () => {
     const dir = tmp();
     const path = join(dir, 'c.sqlite');
+    writeFileSync(path, Buffer.alloc(4096, 0x61));
+    expect(() => openCatalogStore({ path })).toThrow(CatalogUnavailableError);
+    expect(readFileSync(path)).toEqual(Buffer.alloc(4096, 0x61));
+    expect(readdirSync(dir)).toEqual(['c.sqlite']);
+  });
+
+  it('recovers garbage at the default catalog file name by renaming it aside', () => {
+    const dir = tmp();
+    const path = join(dir, 'catalog-v2.sqlite');
     writeFileSync(path, Buffer.alloc(4096, 0x61));
     const store = openCatalogStore({ path });
     const id = store.publishSnapshot(header(), ['"ok"']);

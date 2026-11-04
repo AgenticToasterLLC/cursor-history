@@ -134,6 +134,8 @@ export async function openStore(
 /** Content-free reason: an upper-snake error code, else a fixed token. */
 /** @internal */
 export function reasonOf(error: unknown): string {
+  const reason = (error as { reason?: unknown } | null)?.reason;
+  if (typeof reason === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(reason)) return reason;
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(code) ? code : 'CATALOG_ERROR';
 }
