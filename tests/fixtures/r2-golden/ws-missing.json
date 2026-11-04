@@ -1,0 +1,30 @@
+{
+  "summaries": {
+    "ok": {
+      "data": [],
+      "pagination": {
+        "total": 0,
+        "limit": 9007199254740991,
+        "offset": 0,
+        "hasMore": false
+      }
+    }
+  },
+  "sessions": {
+    "ok": {
+      "data": [],
+      "pagination": {
+        "total": 0,
+        "limit": 9007199254740991,
+        "offset": 0,
+        "hasMore": false
+      }
+    }
+  },
+  "search:needle": {
+    "ok": []
+  },
+  "search:reply": {
+    "ok": []
+  }
+}
