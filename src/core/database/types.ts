@@ -42,9 +42,24 @@ export interface Statement {
 }
 
 /**
+ * Per-connection SQLite features that let Composer reads use cheaper, exactly
+ * equivalent SQL. Only real driver connections declare them; test doubles and
+ * wrappers without the property always get the released SQL.
+ */
+export interface ComposerReadCapabilities {
+  /** `octet_length(X)` exists (SQLite 3.43+) and reads byte length from the record header. */
+  readonly octetLength: boolean;
+  /** `PRAGMA case_sensitive_like = ON` took effect, so LIKE prefixes equal binary key ranges. */
+  readonly byteExactLike: boolean;
+}
+
+/**
  * Open database connection
  */
 export interface Database {
+  /** Optional Composer read capabilities; absent means "use the conservative released SQL". */
+  readonly composerReadCapabilities?: ComposerReadCapabilities;
+
   /**
    * Create a prepared statement from SQL
    * @param sql - SQL query string

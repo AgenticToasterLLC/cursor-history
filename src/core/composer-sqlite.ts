@@ -38,17 +38,22 @@ export interface ComposerSqliteBubbleValue extends ComposerSqliteBubbleMetadata 
  * trailing-`%` LIKE prefix pattern, or null when the pattern is not a simple
  * literal prefix that a range scan can express.
  */
+function prefixUpperBound(body: string): string | null {
+  for (let index = body.length - 1; index >= 0; index--) {
+    const code = body.charCodeAt(index);
+    if (code < 0xffff) {
+      return body.slice(0, index) + String.fromCharCode(code + 1);
+    }
+  }
+  return null;
+}
+
 function likePrefixRange(pattern: string): { lower: string; upper: string } | null {
   if (!pattern.endsWith('%')) return null;
   const body = pattern.slice(0, -1);
   if (/[%_\\]/u.test(body)) return null;
-  for (let index = body.length - 1; index >= 0; index--) {
-    const code = body.charCodeAt(index);
-    if (code < 0xffff) {
-      return { lower: body, upper: body.slice(0, index) + String.fromCharCode(code + 1) };
-    }
-  }
-  return null;
+  const upper = prefixUpperBound(body);
+  return upper === null ? null : { lower: body, upper };
 }
 
 /** Escape caller-controlled text for a SQLite LIKE prefix using `\` as ESCAPE. */
@@ -227,6 +232,230 @@ export function createComposerSqliteBudget(
   return new SqliteSourceReadBudget(limits, outcome);
 }
 
+/**
+ * Byte-length projection for admission. `octet_length(value)` is read from the
+ * record header and never loads overflow pages, unlike `length(CAST(value AS
+ * BLOB))`, which materializes the payload. The two are exactly equal for every
+ * storage class (TEXT, BLOB, NULL, INTEGER, REAL) and for UTF-8/UTF-16 databases
+ * (see tests/unit/composer-sqlite-rewrites.test.ts), so the choice is a pure
+ * feature detection recorded by the driver when the connection was opened.
+ */
+function byteLengthSql(db: Database): string {
+  return db.composerReadCapabilities?.octetLength === true
+    ? 'octet_length(value)'
+    : 'length(CAST(value AS BLOB))';
+}
+
+/** Largest row set the key-range gather may hold in memory before falling back to paged reads. */
+const GATHER_MAX_ROWS = 1_000_000;
+/** Rows fetched per key-ordered gather query (independent of the admission page size). */
+const GATHER_PAGE_ROWS = 1024;
+/** Values prefetched per batched read: row-count and declared-byte bounds. */
+const VALUE_BATCH_ROWS = 64;
+const VALUE_BATCH_BYTES = 4 * 1024 * 1024;
+
+function compareRowIds(left: number | bigint, right: number | bigint): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** The released rowid-keyset statement, kept as the fallback and as the semantic oracle. */
+function legacyRowIdPageSql(table: string, columns: string, where: string): string {
+  return `SELECT CAST(${table}.rowid AS TEXT) AS rowId, key, ${columns} FROM ${table} WHERE ${where} AND (? IS NULL OR ${table}.rowid > ?) ORDER BY ${table}.rowid ASC LIMIT ?`;
+}
+
+interface RowIdOrderedSpec<T extends ComposerSqliteMetadata> {
+  readonly table: string;
+  /** Projection after `rowId, key`. */
+  readonly columns: string;
+  /** Predicate (and its parameters) selecting the rows; identical for both strategies. */
+  readonly where: string;
+  readonly params: readonly unknown[];
+  /** Key range covering every match, when the pattern is a safe literal prefix. */
+  readonly range: { lower: string; upper: string } | null;
+  /** Whether the optimized strategy is allowed for this predicate on this connection. */
+  readonly optimizable: boolean;
+  readonly normalize: (
+    row: Record<string, unknown>,
+    fallbackKey?: string,
+    fallbackRowId?: number
+  ) => T;
+}
+
+/**
+ * Collect every row of a key range through a key keyset (an index range stream),
+ * so SQLite never builds a TEMP B-TREE for `ORDER BY rowid`, then order by rowid
+ * in JS. Returns undefined (before any budget is charged) when the range is
+ * larger than the gather bound, in which case the caller uses the released
+ * paged statement.
+ */
+function gatherRowIdOrdered<T extends ComposerSqliteMetadata>(
+  db: Database,
+  spec: RowIdOrderedSpec<T>,
+  budget: SqliteSourceReadBudget,
+  signal?: AbortSignal
+): T[] | undefined {
+  const range = spec.range!;
+  const remaining = budget.limits.sqliteRowCount - budget.rowCount;
+  const cap = Math.min(GATHER_MAX_ROWS, remaining + 1);
+  const select = `SELECT CAST(${spec.table}.rowid AS TEXT) AS rowId, key, ${spec.columns} FROM ${spec.table} WHERE key `;
+  const tail = ` ? COLLATE BINARY AND key < ? COLLATE BINARY AND ${spec.where} ORDER BY key COLLATE BINARY ASC LIMIT ?`;
+  const first = db.prepare(`${select}>=${tail}`);
+  const later = db.prepare(`${select}>${tail}`);
+  const rows: T[] = [];
+  let afterKey: string | undefined;
+  while (true) {
+    throwIfAborted(signal);
+    const raw = (afterKey === undefined ? first : later).all(
+      afterKey ?? range.lower,
+      range.upper,
+      ...spec.params,
+      GATHER_PAGE_ROWS
+    ) as Array<Record<string, unknown>>;
+    for (const row of raw) {
+      rows.push(spec.normalize(row));
+      if (rows.length > cap) return undefined;
+    }
+    if (raw.length < GATHER_PAGE_ROWS) break;
+    const lastKey = raw[raw.length - 1]!['key'];
+    if (typeof lastKey !== 'string') {
+      throw new TypeError('SQLite returned Composer metadata without a key');
+    }
+    afterKey = lastKey;
+  }
+  rows.sort((left, right) => compareRowIds(left.rowId, right.rowId));
+  return rows;
+}
+
+/**
+ * Admitted metadata pages in rowid order. A page is yielded only after the
+ * budget admitted it, exactly as the released loops did.
+ */
+function* rowIdOrderedPages<T extends ComposerSqliteMetadata>(
+  db: Database,
+  spec: RowIdOrderedSpec<T>,
+  budget: SqliteSourceReadBudget,
+  signal?: AbortSignal
+): Generator<T[]> {
+  const pageRows = budget.limits.sqlitePageRows;
+  if (spec.optimizable && spec.range) {
+    const gathered = gatherRowIdOrdered(db, spec, budget, signal);
+    if (gathered) {
+      for (let start = 0; start < gathered.length; start += pageRows) {
+        throwIfAborted(signal);
+        const page = gathered.slice(start, start + pageRows);
+        budget.admitMetadataPage(page.map(({ byteLength }) => byteLength));
+        yield page;
+      }
+      return;
+    }
+  }
+
+  const statement = db.prepare(legacyRowIdPageSql(spec.table, spec.columns, spec.where));
+  let afterRowId: number | bigint | null = null;
+  while (true) {
+    throwIfAborted(signal);
+    const rawPage = statement.all(...spec.params, afterRowId, afterRowId, pageRows) as Array<
+      Record<string, unknown>
+    >;
+    if (rawPage.length === 0) break;
+
+    const fallbackBase: number =
+      typeof afterRowId === 'number' && Number.isSafeInteger(afterRowId) ? afterRowId : -1;
+    const page = rawPage.map((row, index) =>
+      spec.normalize(row, undefined, fallbackBase + index + 1)
+    );
+    budget.admitMetadataPage(page.map(({ byteLength }) => byteLength));
+    yield page;
+
+    // Historical in-repo test adapters return the complete old payload page
+    // without row IDs. Production SQLite always supplies rowId for this query.
+    const legacyInlinePage = rawPage.some(
+      (row) => row['rowId'] === undefined && row['byteLength'] === undefined
+    );
+    if (legacyInlinePage || rawPage.length < pageRows) break;
+    afterRowId = page[page.length - 1]!.rowId;
+  }
+}
+
+/**
+ * The key range for an exact byte prefix, or null when the prefix needs the
+ * released predicate: NUL (GLOB stops at NUL), an empty prefix, or anything
+ * whose UTF-8 binding is not a plain monotonic code-point range.
+ */
+function exactPrefixKeyRange(prefix: string): { lower: string; upper: string } | null {
+  if (prefix.length === 0 || prefix.includes('\0')) return null;
+  const upper = prefixUpperBound(prefix);
+  if (upper === null) return null;
+  const range = { lower: prefix, upper };
+  return safeKeyRange(range) ? range : null;
+}
+
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+function hasLoneSurrogate(value: string): boolean {
+  return LONE_SURROGATE.test(value);
+}
+
+/** Ranges with lone surrogates would be re-encoded by the binding and stop being supersets. */
+function safeKeyRange(range: { lower: string; upper: string }): boolean {
+  return (
+    !hasLoneSurrogate(range.lower) && !hasLoneSurrogate(range.upper) && !range.lower.includes('\0')
+  );
+}
+
+function composerMetadataSpec(
+  db: Database,
+  table: ComposerKeyValueTable,
+  keyPattern: string
+): RowIdOrderedSpec<InternalComposerSqliteMetadata> {
+  const range = likePrefixRange(keyPattern);
+  return {
+    table,
+    columns: `${byteLengthSql(db)} AS byteLength`,
+    where: `key LIKE ? ESCAPE '\\' AND value IS NOT NULL`,
+    params: [keyPattern],
+    range: range && safeKeyRange(range) ? range : null,
+    optimizable: db.composerReadCapabilities?.byteExactLike === true,
+    normalize: normalizeMetadata,
+  };
+}
+
+function bubbleColumns(db: Database): string {
+  return `COALESCE(${byteLengthSql(db)}, 0) AS byteLength, value IS NULL AS valueIsNull`;
+}
+
+function bubbleLikeSpec(
+  db: Database,
+  keyPattern: string
+): RowIdOrderedSpec<InternalComposerSqliteBubbleMetadata> {
+  const range = likePrefixRange(keyPattern);
+  return {
+    table: 'cursorDiskKV',
+    columns: bubbleColumns(db),
+    where: `key LIKE ? ESCAPE '\\'`,
+    params: [keyPattern],
+    range: range && safeKeyRange(range) ? range : null,
+    optimizable: db.composerReadCapabilities?.byteExactLike === true,
+    normalize: normalizeBubbleMetadata,
+  };
+}
+
+function bubbleExactPrefixSpec(
+  db: Database,
+  keyPrefix: string
+): RowIdOrderedSpec<InternalComposerSqliteBubbleMetadata> {
+  const predicate = exactPrefixPredicate('cursorDiskKV.key', keyPrefix);
+  return {
+    table: 'cursorDiskKV',
+    columns: bubbleColumns(db),
+    where: predicate.sql,
+    params: predicate.params,
+    range: exactPrefixKeyRange(keyPrefix),
+    optimizable: db.composerReadCapabilities !== undefined,
+    normalize: normalizeBubbleMetadata,
+  };
+}
+
 /** Admit the metadata for one exact key without crossing the payload boundary. */
 export function getBoundedComposerMetadataByKey(
   db: Database,
@@ -238,7 +467,7 @@ export function getBoundedComposerMetadataByKey(
   throwIfAborted(signal);
   const raw = db
     .prepare(
-      `SELECT CAST(rowid AS TEXT) AS rowId, key, length(CAST(value AS BLOB)) AS byteLength FROM ${table} WHERE key = ? COLLATE BINARY AND value IS NOT NULL`
+      `SELECT CAST(rowid AS TEXT) AS rowId, key, ${byteLengthSql(db)} AS byteLength FROM ${table} WHERE key = ? COLLATE BINARY AND value IS NOT NULL`
     )
     .get(key) as Record<string, unknown> | undefined;
   if (!raw) return undefined;
@@ -269,36 +498,12 @@ export function forEachBoundedComposerMetadata(
   visit: (metadata: ComposerSqliteMetadata) => void,
   signal?: AbortSignal
 ): void {
-  const pageRows = budget.limits.sqlitePageRows;
-  let afterRowId: number | bigint | null = null;
-  while (true) {
-    throwIfAborted(signal);
-    const rawPage = db
-      .prepare(
-        `SELECT CAST(${table}.rowid AS TEXT) AS rowId, key, length(CAST(value AS BLOB)) AS byteLength FROM ${table} WHERE key LIKE ? ESCAPE '\\' AND value IS NOT NULL AND (? IS NULL OR ${table}.rowid > ?) ORDER BY ${table}.rowid ASC LIMIT ?`
-      )
-      .all(keyPattern, afterRowId, afterRowId, pageRows) as Array<Record<string, unknown>>;
-    if (rawPage.length === 0) break;
-
-    const fallbackBase: number =
-      typeof afterRowId === 'number' && Number.isSafeInteger(afterRowId) ? afterRowId : -1;
-    const page: InternalComposerSqliteMetadata[] = rawPage.map(
-      (row, index): InternalComposerSqliteMetadata =>
-        normalizeMetadata(row, undefined, fallbackBase + index + 1)
-    );
-    budget.admitMetadataPage(page.map(({ byteLength }) => byteLength));
+  const spec = composerMetadataSpec(db, table, keyPattern);
+  for (const page of rowIdOrderedPages(db, spec, budget, signal)) {
     for (const metadata of page) {
       throwIfAborted(signal);
       visit(metadata);
     }
-
-    // Historical in-repo test adapters return the complete old payload page
-    // without row IDs. Production SQLite always supplies rowId for this query.
-    const legacyInlinePage = rawPage.some(
-      (row) => row['rowId'] === undefined && row['byteLength'] === undefined
-    );
-    if (legacyInlinePage || rawPage.length < pageRows) break;
-    afterRowId = page[page.length - 1]!.rowId;
   }
 }
 
@@ -379,33 +584,11 @@ export function forEachBoundedComposerBubbleMetadata(
   visit: (metadata: ComposerSqliteBubbleMetadata) => void,
   signal?: AbortSignal
 ): void {
-  const pageRows = budget.limits.sqlitePageRows;
-  let afterRowId: number | bigint | null = null;
-  while (true) {
-    throwIfAborted(signal);
-    const rawPage = db
-      .prepare(
-        `SELECT CAST(cursorDiskKV.rowid AS TEXT) AS rowId, key, COALESCE(length(CAST(value AS BLOB)), 0) AS byteLength, value IS NULL AS valueIsNull FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\' AND (? IS NULL OR cursorDiskKV.rowid > ?) ORDER BY cursorDiskKV.rowid ASC LIMIT ?`
-      )
-      .all(keyPattern, afterRowId, afterRowId, pageRows) as Array<Record<string, unknown>>;
-    if (rawPage.length === 0) break;
-
-    const fallbackBase: number =
-      typeof afterRowId === 'number' && Number.isSafeInteger(afterRowId) ? afterRowId : -1;
-    const page = rawPage.map((row, index) =>
-      normalizeBubbleMetadata(row, undefined, fallbackBase + index + 1)
-    );
-    budget.admitMetadataPage(page.map(({ byteLength }) => byteLength));
+  for (const page of rowIdOrderedPages(db, bubbleLikeSpec(db, keyPattern), budget, signal)) {
     for (const metadata of page) {
       throwIfAborted(signal);
       visit(metadata);
     }
-
-    const legacyInlinePage = rawPage.some(
-      (row) => row['rowId'] === undefined && row['byteLength'] === undefined
-    );
-    if (legacyInlinePage || rawPage.length < pageRows) break;
-    afterRowId = page[page.length - 1]!.rowId;
   }
 }
 
@@ -417,34 +600,85 @@ export function forEachBoundedComposerBubbleMetadataByExactPrefix(
   visit: (metadata: ComposerSqliteBubbleMetadata) => void,
   signal?: AbortSignal
 ): void {
-  const pageRows = budget.limits.sqlitePageRows;
-  const predicate = exactPrefixPredicate('cursorDiskKV.key', keyPrefix);
-  let afterRowId: number | bigint | null = null;
-  while (true) {
-    throwIfAborted(signal);
-    const rawPage = db
-      .prepare(
-        `SELECT CAST(cursorDiskKV.rowid AS TEXT) AS rowId, key, COALESCE(length(CAST(value AS BLOB)), 0) AS byteLength, value IS NULL AS valueIsNull FROM cursorDiskKV WHERE ${predicate.sql} AND (? IS NULL OR cursorDiskKV.rowid > ?) ORDER BY cursorDiskKV.rowid ASC LIMIT ?`
-      )
-      .all(...predicate.params, afterRowId, afterRowId, pageRows) as Array<Record<string, unknown>>;
-    if (rawPage.length === 0) break;
-
-    const fallbackBase: number =
-      typeof afterRowId === 'number' && Number.isSafeInteger(afterRowId) ? afterRowId : -1;
-    const page = rawPage.map((row, index) =>
-      normalizeBubbleMetadata(row, undefined, fallbackBase + index + 1)
-    );
-    budget.admitMetadataPage(page.map(({ byteLength }) => byteLength));
+  for (const page of rowIdOrderedPages(db, bubbleExactPrefixSpec(db, keyPrefix), budget, signal)) {
     for (const metadata of page) {
       throwIfAborted(signal);
       visit(metadata);
     }
+  }
+}
 
-    const legacyInlinePage = rawPage.some(
-      (row) => row['rowId'] === undefined && row['byteLength'] === undefined
-    );
-    if (legacyInlinePage || rawPage.length < pageRows) break;
-    afterRowId = page[page.length - 1]!.rowId;
+interface FetchedValueRow {
+  readonly key?: unknown;
+  readonly value?: unknown;
+  readonly valueIsNull?: unknown;
+}
+
+/**
+ * Prefetches payloads for one admitted page in bounded batches. Each row is
+ * still checked and charged individually, in page order, when its consumer asks
+ * for it; prefetching only changes how many statements cross the adapter.
+ * The `rowid = ? AND key = ? COLLATE BINARY` identity check is evaluated by SQL
+ * for every row (a join against the admitted `(rowid, key)` pairs), so a row
+ * whose key bytes changed is simply absent and reported as changed.
+ */
+class ValueBatcher {
+  private readonly statements = new Map<number, ReturnType<Database['prepare']>>();
+  private page: readonly ComposerSqliteMetadata[] = [];
+  private rows: Array<FetchedValueRow | undefined> = [];
+  private fetchedUpTo = 0;
+
+  constructor(
+    private readonly db: Database,
+    private readonly table: string,
+    private readonly nullState: boolean
+  ) {}
+
+  begin(page: readonly ComposerSqliteMetadata[]): void {
+    this.page = page;
+    this.rows = new Array(page.length);
+    this.fetchedUpTo = 0;
+  }
+
+  take(index: number): FetchedValueRow | undefined {
+    if (index >= this.fetchedUpTo) this.fetchChunk(index);
+    const row = this.rows[index];
+    this.rows[index] = undefined;
+    return row;
+  }
+
+  private fetchChunk(start: number): void {
+    let end = start;
+    let bytes = 0;
+    while (end < this.page.length && end - start < VALUE_BATCH_ROWS) {
+      const metadata = this.page[end]!;
+      if (end > start && bytes + metadata.byteLength > VALUE_BATCH_BYTES) break;
+      bytes += metadata.byteLength;
+      end++;
+    }
+    const count = end - start;
+    let statement = this.statements.get(count);
+    if (!statement) {
+      const tuples = Array.from({ length: count }, () => '(?,?,?)').join(',');
+      const nullState = this.nullState ? ', t.value IS NULL AS valueIsNull' : '';
+      statement = this.db.prepare(
+        `WITH w(i, r, k) AS (VALUES ${tuples}) SELECT w.i AS i, t.key AS key, CAST(t.value AS BLOB) AS value${nullState} FROM w JOIN ${this.table} AS t ON t.rowid = w.r AND t.key = w.k COLLATE BINARY`
+      );
+      this.statements.set(count, statement);
+    }
+    const params: unknown[] = [];
+    for (let offset = 0; offset < count; offset++) {
+      const metadata = this.page[start + offset]!;
+      params.push(offset, metadata.rowId, metadata.key);
+    }
+    const found = statement.all(...params) as Array<FetchedValueRow & { i?: unknown }>;
+    for (const row of found) {
+      const offset = Number(row.i);
+      if (Number.isInteger(offset) && offset >= 0 && offset < count) {
+        this.rows[start + offset] = row;
+      }
+    }
+    this.fetchedUpTo = end;
   }
 }
 
@@ -453,7 +687,8 @@ function readAdmittedComposerValue(
   table: ComposerKeyValueTable,
   metadata: ComposerSqliteMetadata,
   budget: SqliteSourceReadBudget,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  prefetched?: () => FetchedValueRow | undefined
 ): ComposerSqliteValue {
   throwIfAborted(signal);
   const internal = metadata as InternalComposerSqliteMetadata;
@@ -462,11 +697,13 @@ function readAdmittedComposerValue(
   if (Object.prototype.hasOwnProperty.call(internal, 'inlineValue')) {
     rawValue = internal.inlineValue;
   } else {
-    const row = db
-      .prepare(
-        `SELECT key, CAST(value AS BLOB) AS value FROM ${table} WHERE ${table}.rowid = ? AND key = ? COLLATE BINARY`
-      )
-      .get(metadata.rowId, metadata.key) as { key?: unknown; value?: unknown } | undefined;
+    const row = prefetched
+      ? prefetched()
+      : (db
+          .prepare(
+            `SELECT key, CAST(value AS BLOB) AS value FROM ${table} WHERE ${table}.rowid = ? AND key = ? COLLATE BINARY`
+          )
+          .get(metadata.rowId, metadata.key) as { key?: unknown; value?: unknown } | undefined);
     if (!row || row.value === undefined || row.value === null) {
       throw new Error('Composer SQLite payload changed after metadata admission.');
     }
@@ -493,7 +730,8 @@ function readAdmittedComposerBubbleValue(
   db: Database,
   metadata: ComposerSqliteBubbleMetadata,
   budget: SqliteSourceReadBudget,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  prefetched?: () => FetchedValueRow | undefined
 ): ComposerSqliteBubbleValue {
   throwIfAborted(signal);
   const internal = metadata as InternalComposerSqliteBubbleMetadata;
@@ -504,12 +742,13 @@ function readAdmittedComposerBubbleValue(
     rawValue = internal.inlineValue;
     returnedValueIsNull = rawValue === null;
   } else {
-    const row = db
-      .prepare(
-        `SELECT key, CAST(value AS BLOB) AS value, value IS NULL AS valueIsNull FROM cursorDiskKV WHERE cursorDiskKV.rowid = ? AND key = ? COLLATE BINARY`
-      )
-      .get(metadata.rowId, metadata.key) as
-      { key?: unknown; value?: unknown; valueIsNull?: unknown } | undefined;
+    const row = prefetched
+      ? prefetched()
+      : (db
+          .prepare(
+            `SELECT key, CAST(value AS BLOB) AS value, value IS NULL AS valueIsNull FROM cursorDiskKV WHERE cursorDiskKV.rowid = ? AND key = ? COLLATE BINARY`
+          )
+          .get(metadata.rowId, metadata.key) as FetchedValueRow | undefined);
     if (!row || row.value === undefined) {
       throw new Error('Composer SQLite payload changed after metadata admission.');
     }
@@ -571,7 +810,7 @@ export function readFirstBoundedComposerValue(
   throwIfAborted(signal);
   const raw = db
     .prepare(
-      `SELECT CAST(${table}.rowid AS TEXT) AS rowId, key, length(CAST(value AS BLOB)) AS byteLength FROM ${table} WHERE key LIKE ? ESCAPE '\\' AND value IS NOT NULL ORDER BY ${table}.rowid ASC LIMIT 1`
+      `SELECT CAST(${table}.rowid AS TEXT) AS rowId, key, ${byteLengthSql(db)} AS byteLength FROM ${table} WHERE key LIKE ? ESCAPE '\\' AND value IS NOT NULL ORDER BY ${table}.rowid ASC LIMIT 1`
     )
     .get(keyPattern) as Record<string, unknown> | undefined;
   if (!raw) return undefined;
@@ -590,11 +829,56 @@ export function readFirstBoundedComposerBubbleValue(
   throwIfAborted(signal);
   const raw = db
     .prepare(
-      `SELECT CAST(cursorDiskKV.rowid AS TEXT) AS rowId, key, COALESCE(length(CAST(value AS BLOB)), 0) AS byteLength, value IS NULL AS valueIsNull FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\' ORDER BY cursorDiskKV.rowid ASC LIMIT 1`
+      `SELECT CAST(cursorDiskKV.rowid AS TEXT) AS rowId, key, ${bubbleColumns(db)} FROM cursorDiskKV WHERE key LIKE ? ESCAPE '\\' ORDER BY cursorDiskKV.rowid ASC LIMIT 1`
     )
     .get(keyPattern) as Record<string, unknown> | undefined;
   if (!raw) return undefined;
   const metadata = normalizeBubbleMetadata(raw, keyPattern);
+  budget.admitMetadataPage([metadata.byteLength]);
+  return readAdmittedComposerBubbleValue(db, metadata, budget, signal);
+}
+
+/**
+ * First or last bubble row (by rowid) of one exact prefix. The extreme rowid is
+ * found with a covering-index `min`/`max` over the key range, so no TEMP B-TREE
+ * sorts or projects the composer's other bubbles; the winning row is then read
+ * by rowid. Falls back to the released ordered `LIMIT 1` statement.
+ */
+function readExtremeBubbleByExactPrefix(
+  db: Database,
+  keyPrefix: string,
+  direction: 'ASC' | 'DESC',
+  budget: SqliteSourceReadBudget,
+  signal?: AbortSignal
+): ComposerSqliteBubbleValue | undefined {
+  const predicate = exactPrefixPredicate('cursorDiskKV.key', keyPrefix);
+  throwIfAborted(signal);
+  const range = db.composerReadCapabilities !== undefined ? exactPrefixKeyRange(keyPrefix) : null;
+  let raw: Record<string, unknown> | undefined;
+  if (range) {
+    const aggregate = direction === 'ASC' ? 'min' : 'max';
+    const extreme = db
+      .prepare(
+        `SELECT CAST(${aggregate}(cursorDiskKV.rowid) AS TEXT) AS rowId FROM cursorDiskKV WHERE key >= ? COLLATE BINARY AND key < ? COLLATE BINARY AND ${predicate.sql}`
+      )
+      .get(range.lower, range.upper, ...predicate.params) as Record<string, unknown> | undefined;
+    const extremeRowId = extreme?.['rowId'];
+    if (extremeRowId === undefined || extremeRowId === null) return undefined;
+    raw = db
+      .prepare(
+        `SELECT CAST(cursorDiskKV.rowid AS TEXT) AS rowId, key, ${bubbleColumns(db)} FROM cursorDiskKV WHERE cursorDiskKV.rowid = ? AND ${predicate.sql}`
+      )
+      .get(normalizedRowId(extremeRowId, 0), ...predicate.params) as
+      Record<string, unknown> | undefined;
+  } else {
+    raw = db
+      .prepare(
+        `SELECT CAST(cursorDiskKV.rowid AS TEXT) AS rowId, key, ${bubbleColumns(db)} FROM cursorDiskKV WHERE ${predicate.sql} ORDER BY cursorDiskKV.rowid ${direction} LIMIT 1`
+      )
+      .get(...predicate.params) as Record<string, unknown> | undefined;
+  }
+  if (!raw) return undefined;
+  const metadata = normalizeBubbleMetadata(raw, keyPrefix);
   budget.admitMetadataPage([metadata.byteLength]);
   return readAdmittedComposerBubbleValue(db, metadata, budget, signal);
 }
@@ -606,17 +890,7 @@ export function readFirstBoundedComposerBubbleValueByExactPrefix(
   budget: SqliteSourceReadBudget,
   signal?: AbortSignal
 ): ComposerSqliteBubbleValue | undefined {
-  const predicate = exactPrefixPredicate('cursorDiskKV.key', keyPrefix);
-  throwIfAborted(signal);
-  const raw = db
-    .prepare(
-      `SELECT CAST(cursorDiskKV.rowid AS TEXT) AS rowId, key, COALESCE(length(CAST(value AS BLOB)), 0) AS byteLength, value IS NULL AS valueIsNull FROM cursorDiskKV WHERE ${predicate.sql} ORDER BY cursorDiskKV.rowid ASC LIMIT 1`
-    )
-    .get(...predicate.params) as Record<string, unknown> | undefined;
-  if (!raw) return undefined;
-  const metadata = normalizeBubbleMetadata(raw, keyPrefix);
-  budget.admitMetadataPage([metadata.byteLength]);
-  return readAdmittedComposerBubbleValue(db, metadata, budget, signal);
+  return readExtremeBubbleByExactPrefix(db, keyPrefix, 'ASC', budget, signal);
 }
 
 /**
@@ -631,20 +905,10 @@ export function readLastBoundedComposerBubbleValueByExactPrefix(
   budget: SqliteSourceReadBudget,
   signal?: AbortSignal
 ): ComposerSqliteBubbleValue | undefined {
-  const predicate = exactPrefixPredicate('cursorDiskKV.key', keyPrefix);
-  throwIfAborted(signal);
-  const raw = db
-    .prepare(
-      `SELECT CAST(cursorDiskKV.rowid AS TEXT) AS rowId, key, COALESCE(length(CAST(value AS BLOB)), 0) AS byteLength, value IS NULL AS valueIsNull FROM cursorDiskKV WHERE ${predicate.sql} ORDER BY cursorDiskKV.rowid DESC LIMIT 1`
-    )
-    .get(...predicate.params) as Record<string, unknown> | undefined;
-  if (!raw) return undefined;
-  const metadata = normalizeBubbleMetadata(raw, keyPrefix);
-  budget.admitMetadataPage([metadata.byteLength]);
-  return readAdmittedComposerBubbleValue(db, metadata, budget, signal);
+  return readExtremeBubbleByExactPrefix(db, keyPrefix, 'DESC', budget, signal);
 }
 
-/** Admit full metadata pages, then fetch and release each matching payload sequentially. */
+/** Admit full metadata pages, then fetch and release each matching payload in bounded batches. */
 export function forEachBoundedComposerValue(
   db: Database,
   table: ComposerKeyValueTable,
@@ -653,19 +917,58 @@ export function forEachBoundedComposerValue(
   visit: (row: ComposerSqliteValue) => void,
   signal?: AbortSignal
 ): void {
-  forEachBoundedComposerMetadata(
-    db,
-    table,
-    keyPattern,
-    budget,
-    (metadata) => visit(readAdmittedComposerValue(db, table, metadata, budget, signal)),
-    signal
-  );
+  const batcher =
+    db.composerReadCapabilities !== undefined ? new ValueBatcher(db, table, false) : undefined;
+  const spec = composerMetadataSpec(db, table, keyPattern);
+  for (const page of rowIdOrderedPages(db, spec, budget, signal)) {
+    batcher?.begin(page);
+    for (let index = 0; index < page.length; index++) {
+      throwIfAborted(signal);
+      visit(
+        readAdmittedComposerValue(
+          db,
+          table,
+          page[index]!,
+          budget,
+          signal,
+          batcher && (() => batcher.take(index))
+        )
+      );
+    }
+  }
+}
+
+function visitBubbleValues(
+  db: Database,
+  spec: RowIdOrderedSpec<InternalComposerSqliteBubbleMetadata>,
+  budget: SqliteSourceReadBudget,
+  visit: (row: ComposerSqliteBubbleValue) => void,
+  signal?: AbortSignal
+): void {
+  const batcher =
+    db.composerReadCapabilities !== undefined
+      ? new ValueBatcher(db, 'cursorDiskKV', true)
+      : undefined;
+  for (const page of rowIdOrderedPages(db, spec, budget, signal)) {
+    batcher?.begin(page);
+    for (let index = 0; index < page.length; index++) {
+      throwIfAborted(signal);
+      visit(
+        readAdmittedComposerBubbleValue(
+          db,
+          page[index]!,
+          budget,
+          signal,
+          batcher && (() => batcher.take(index))
+        )
+      );
+    }
+  }
 }
 
 /**
- * Admit full global-bubble metadata pages, then fetch each nullable payload
- * sequentially. Physical row-ID order is preserved, including SQL NULL rows.
+ * Admit full global-bubble metadata pages, then fetch each nullable payload in
+ * bounded batches. Physical row-ID order is preserved, including SQL NULL rows.
  */
 export function forEachBoundedComposerBubbleValue(
   db: Database,
@@ -674,13 +977,7 @@ export function forEachBoundedComposerBubbleValue(
   visit: (row: ComposerSqliteBubbleValue) => void,
   signal?: AbortSignal
 ): void {
-  forEachBoundedComposerBubbleMetadata(
-    db,
-    keyPattern,
-    budget,
-    (metadata) => visit(readAdmittedComposerBubbleValue(db, metadata, budget, signal)),
-    signal
-  );
+  visitBubbleValues(db, bubbleLikeSpec(db, keyPattern), budget, visit, signal);
 }
 
 /** Fetch nullable global bubbles under one exact, case-sensitive byte prefix. */
@@ -691,11 +988,5 @@ export function forEachBoundedComposerBubbleValueByExactPrefix(
   visit: (row: ComposerSqliteBubbleValue) => void,
   signal?: AbortSignal
 ): void {
-  forEachBoundedComposerBubbleMetadataByExactPrefix(
-    db,
-    keyPrefix,
-    budget,
-    (metadata) => visit(readAdmittedComposerBubbleValue(db, metadata, budget, signal)),
-    signal
-  );
+  visitBubbleValues(db, bubbleExactPrefixSpec(db, keyPrefix), budget, visit, signal);
 }
