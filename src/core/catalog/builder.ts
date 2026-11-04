@@ -115,6 +115,16 @@ export async function buildCatalogSnapshot(
         for (const row of rows) yield JSON.stringify(row);
       })()
     );
+    if (request.scopeKey.searchIndex === true) {
+      options.onProgress?.('indexing');
+      const { buildSearchIndex } = await import('./search-index.js');
+      await buildSearchIndex(
+        store as Parameters<typeof buildSearchIndex>[0],
+        snapshotId,
+        config,
+        { signal: options.signal }
+      );
+    }
     return {
       type: 'done',
       jobId,

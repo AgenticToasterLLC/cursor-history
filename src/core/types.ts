@@ -545,6 +545,12 @@ export interface SearchOptions {
   includeCrossWorkspaceSources?: boolean;
   sourceReadLimits?: SourceReadLimitsOverride;
   signal?: AbortSignal;
+  /**
+   * Internal: restrict hydration/matching to these resolved session ids (catalog search index
+   * candidates). Ambiguous sessions are never filtered out, so their reporting is unchanged.
+   * Summary order is preserved, so ranking and tie order equal the full scan restricted to them.
+   */
+  onlySessionIds?: ReadonlySet<string>;
 }
 
 /**

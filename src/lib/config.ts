@@ -45,6 +45,7 @@ export interface ResolvedConfig {
   diagnostics?: LibraryConfig['diagnostics'];
   catalog: CatalogMode;
   catalogPath?: string;
+  searchIndex: boolean;
 }
 
 /**
@@ -154,6 +155,10 @@ export function validateConfig(config?: LibraryConfig): void {
     );
   }
 
+  if (config.searchIndex !== undefined && typeof config.searchIndex !== 'boolean') {
+    throw new InvalidConfigError('searchIndex', config.searchIndex, 'must be a boolean');
+  }
+
   if (
     config.catalogPath !== undefined &&
     (typeof config.catalogPath !== 'string' || config.catalogPath.length === 0)
@@ -195,6 +200,7 @@ export function mergeWithDefaults(config?: LibraryConfig): ResolvedConfig {
     diagnostics: config?.diagnostics,
     catalog: config?.catalog ?? 'direct',
     catalogPath: config?.catalogPath,
+    searchIndex: config?.searchIndex ?? false,
   };
 }
 

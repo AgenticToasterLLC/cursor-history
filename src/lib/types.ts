@@ -448,6 +448,16 @@ export interface LibraryConfig {
   /** Override the sidecar catalog file location (default: platform cache dir). */
   catalogPath?: string;
 
+  /**
+   * Opt in to the sidecar full-text index (default false). Only effective with `catalog` of
+   * `'auto'` or `'strict'`: the catalog build then also indexes message text so that
+   * `searchSessions` can pick candidate sessions from the index and re-verify them against the
+   * source. Results are always computed from source text, never from the index. The index is a
+   * contentless trigram table: it stores no message bodies but its postings can reveal
+   * substrings of them, which is why it is opt-in.
+   */
+  searchIndex?: boolean;
+
   /** Cooperatively cancel this operation and nested parsing/snapshot work. */
   signal?: AbortSignal;
 }
@@ -629,7 +639,19 @@ export interface PaginatedResult<T> {
  * Still an ordinary array. `scope` is a non-enumerable property, so iteration,
  * serialization and equality are unchanged.
  */
-export type SearchResultList = SearchResult[] & { readonly scope?: WorkspaceScopeResolution };
+export type SearchResultList = SearchResult[] & {
+  readonly scope?: WorkspaceScopeResolution;
+  /**
+   * How the search was answered. Present (non-enumerable) only when `searchIndex` was enabled
+   * with a catalog mode: `'indexed'` means candidate sessions came from the search index and were
+   * verified against source; `'direct'` means the full scan ran.
+   */
+  readonly searchMode?: 'indexed' | 'direct';
+  /** Content-free reason code when `searchMode` is `'direct'` although the index was requested. */
+  readonly searchModeReason?: string;
+  /** Catalog disclosure for an index-backed search (state, completeness; `complete: false` when stale). */
+  readonly catalog?: CatalogInfo;
+};
 
 /** Configuration for {@link listWorkspaces}: metadata-only workspace discovery. */
 export interface ListWorkspacesConfig {

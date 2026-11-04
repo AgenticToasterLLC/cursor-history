@@ -232,6 +232,7 @@ import {
   catalogIneligibleReason,
 } from '../core/catalog/read.js';
 import type { CatalogStatus } from '../core/catalog/contract.js';
+import type { SearchPlan } from '../core/catalog/search-index.js';
 import { mergeWithDefaults, resolveListWorkspacesConfig, type ResolvedConfig } from './config.js';
 import {
   DatabaseLockedError,
@@ -1330,6 +1331,50 @@ export async function searchSessions(
   query: string,
   config?: LibraryConfig
 ): Promise<SearchResultList> {
+  if (config?.searchIndex === true && config.catalog !== undefined && config.catalog !== 'direct') {
+    mergeWithDefaults(config);
+    let plan: SearchPlan;
+    try {
+      const deps = await getCatalogDeps();
+      const { planIndexedSearch } = await import('../core/catalog/search-index.js');
+      plan = await planIndexedSearch(query, config, deps);
+    } catch {
+      plan = {
+        mode: 'direct',
+        reason: 'CATALOG_UNAVAILABLE',
+        catalog: { state: 'degraded', complete: true, reason: 'CATALOG_UNAVAILABLE' },
+      };
+    }
+    const results = await searchSessionsScan(
+      query,
+      config,
+      plan.mode === 'indexed' ? plan.candidateSessionIds : undefined
+    );
+    const disclose = (name: string, value: unknown): void => {
+      Object.defineProperty(results, name, {
+        value,
+        enumerable: false,
+        configurable: true,
+        writable: false,
+      });
+    };
+    disclose('searchMode', plan.mode);
+    if (plan.mode === 'direct') disclose('searchModeReason', plan.reason);
+    if (plan.catalog) disclose('catalog', plan.catalog);
+    return results;
+  }
+  return searchSessionsScan(query, config);
+}
+
+/**
+ * The authoritative scan behind {@link searchSessions}. With `candidateSessionIds` only those
+ * sessions are hydrated and matched (in summary order, so ranking and ties equal the full scan).
+ */
+async function searchSessionsScan(
+  query: string,
+  config?: LibraryConfig,
+  candidateSessionIds?: ReadonlySet<string>
+): Promise<SearchResultList> {
   try {
     const resolved = mergeWithDefaults(config);
     const bound = bindConfiguredReadContext(config, 0);
@@ -1344,6 +1389,7 @@ export async function searchSessions(
           contextChars: resolved.context * 80,
           workspacePath: bound.workspace,
           includeCrossWorkspaceSources: bound.includeCrossWorkspaceSources,
+          ...(candidateSessionIds ? { onlySessionIds: candidateSessionIds } : {}),
         },
         bound.dataPath,
         bound.backupPath,

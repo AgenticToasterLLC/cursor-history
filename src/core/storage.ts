@@ -6734,6 +6734,7 @@ export async function searchSessions(
         reportSessionAmbiguity(context, summary.id, summary.diagnosticOccurrenceRefs);
         continue;
       }
+      if (options.onlySessionIds && !options.onlySessionIds.has(summary.id)) continue;
       try {
         // diag:phase search:session-loop
         const session = await withPhase(context.io.diagnostics, 'search:session-loop', () =>
