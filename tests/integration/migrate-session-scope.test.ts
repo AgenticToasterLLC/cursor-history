@@ -286,7 +286,7 @@ function hookedBetterSqliteDriver(hooks: {
       return {
         driver: 'better-sqlite3',
         available: true,
-        capabilities: new Set(['read', 'readWrite'] as const),
+        capabilities: new Set(['read', 'readWrite', 'onlineBackup'] as const),
       };
     },
     open(path, options) {
@@ -325,8 +325,10 @@ function hookedBetterSqliteDriver(hooks: {
         },
       };
     },
-    async backup() {
-      throw new Error('not used');
+    async backup(sourcePath, destPath) {
+      // Real online backup: migration takes a verified safety copy before it writes.
+      await betterSqlite3Driver.isAvailable();
+      await betterSqlite3Driver.backup(sourcePath, destPath);
     },
   };
 }
@@ -948,7 +950,7 @@ describe.sequential('atomic multi-target migration', () => {
         return {
           driver: 'better-sqlite3',
           available: true,
-          capabilities: new Set(['read', 'readWrite'] as const),
+          capabilities: new Set(['read', 'readWrite', 'onlineBackup'] as const),
         };
       },
       open(path, options) {
@@ -990,8 +992,10 @@ describe.sequential('atomic multi-target migration', () => {
           },
         };
       },
-      async backup() {
-        throw new Error('not used');
+      async backup(sourcePath, destPath) {
+        // Real online backup: migration takes a verified safety copy before it writes.
+        await betterSqlite3Driver.isAvailable();
+        await betterSqlite3Driver.backup(sourcePath, destPath);
       },
     };
     registry.reset();
@@ -1050,7 +1054,7 @@ describe.sequential('atomic multi-target migration', () => {
         return {
           driver: 'better-sqlite3',
           available: true,
-          capabilities: new Set(['read', 'readWrite'] as const),
+          capabilities: new Set(['read', 'readWrite', 'onlineBackup'] as const),
         };
       },
       open(path, options) {
@@ -1094,8 +1098,10 @@ describe.sequential('atomic multi-target migration', () => {
           },
         };
       },
-      async backup() {
-        throw new Error('not used');
+      async backup(sourcePath, destPath) {
+        // Real online backup: migration takes a verified safety copy before it writes.
+        await betterSqlite3Driver.isAvailable();
+        await betterSqlite3Driver.backup(sourcePath, destPath);
       },
     };
     registry.reset();
@@ -1401,7 +1407,12 @@ describe.sequential('legacy and operation-bound migration regressions', () => {
     registry.setDriver('better-sqlite3');
 
     const [result] = await migrateLibrarySession(
-      sessionConfig(fixture, destination, session.id, { workspace: fixture.projectA })
+      // The safety copy (backup + integrity verification) is not an operation-bound read and uses
+      // the process-preferred provider; it is irrelevant to this test and the data path is custom.
+      sessionConfig(fixture, destination, session.id, {
+        workspace: fixture.projectA,
+        skipSafetyCopy: true,
+      })
     );
     expect(result).toMatchObject({ success: true, sessionId: session.id });
     expect(switched).toBe(true);
@@ -1540,7 +1551,9 @@ describe.sequential('legacy and operation-bound migration regressions', () => {
       beforeOpen(path, readonly) {
         if (readonly || path !== destinationPath) return;
         destinationWriteOpenCount++;
-        if (destinationWriteOpenCount !== 3) return;
+        // Preparation reads read-only; the first read-write open of the destination is the apply
+        // phase, i.e. after the prepared fingerprint was captured and before any staging write.
+        if (destinationWriteOpenCount !== 1) return;
         const db = new BetterSqlite3(destinationPath);
         try {
           db.prepare("UPDATE ItemTable SET value = ? WHERE key = 'composer.composerData'").run(

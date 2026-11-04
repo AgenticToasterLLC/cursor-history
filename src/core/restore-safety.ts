@@ -256,6 +256,21 @@ function isCompanion(path: string): boolean {
   return DATABASE_COMPANION_SUFFIXES.some((suffix) => path.endsWith(suffix));
 }
 
+/** Rollback never writes through a symbolic link / junction swapped into the restored tree. */
+function assertNoLinkBelow(root: string, destination: string): void {
+  let current = resolve(root);
+  for (const part of relative(current, resolve(destination)).split(sep)) {
+    current = join(current, part);
+    let stats;
+    try {
+      stats = lstatSync(current);
+    } catch {
+      return; // Missing from here down: nothing can be traversed.
+    }
+    if (stats.isSymbolicLink()) throw new Error(`Rollback path traverses a link: ${current}`);
+  }
+}
+
 /**
  * Return every entry of a safety copy to its original location. Idempotent: files that already
  * match the safety copy are left alone. Databases are restored before their companions, so a
@@ -283,6 +298,7 @@ export function rollbackFromSafetyCopy(
     const source = join(safety.directory, ...entry.path.split('/'));
     const staging = join(dirname(destination), `.cursor-history-restore-${id}-${randomUUID()}.tmp`);
     try {
+      assertNoLinkBelow(userDir, destination);
       if (existsSync(destination)) {
         const current = hashFile(destination);
         if (current.size === entry.size && current.sha256 === entry.sha256) continue;

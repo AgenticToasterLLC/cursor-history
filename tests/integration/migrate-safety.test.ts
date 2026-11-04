@@ -11,7 +11,8 @@ import {
   statSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
+import { spawn } from 'node:child_process';
 import { registry } from '../../src/core/database/registry.js';
 import { migrationSafetyHooks } from '../../src/core/migrate-safety.js';
 import { migrateSession, migrateWorkspace } from '../../src/lib/index.js';
@@ -24,11 +25,50 @@ import {
   writeComposerGlobalSessions,
   type SessionIntegrityFixtureRoot,
 } from '../helpers/session-integrity-fixtures.js';
+import { platformDefaultUserDir } from '../helpers/live-tree.js';
 import { runBuiltCli } from '../helpers/run-cli.js';
 
 const fwd = (p: string): string => p.replaceAll(String.fromCharCode(92), '/');
 const cleanups: Array<() => void> = [];
 const realStatfs = migrationSafetyHooks.statfs;
+
+const LOCK_SCRIPT = [
+  "const Database = require('better-sqlite3');",
+  'const db = new Database(process.argv[1]);',
+  "db.exec('BEGIN IMMEDIATE');",
+  "process.stdout.write('locked');",
+  'process.stdin.resume();',
+  "process.stdin.on('end', () => process.exit(0));",
+  'setTimeout(() => process.exit(0), 60000);',
+].join('\n');
+
+/** Hold a write lock on `dbPath` from a child process; resolves once the lock is taken. */
+async function holdWriteLockInChildProcess(dbPath: string): Promise<{ release: () => void }> {
+  const child = spawn(process.execPath, ['-e', LOCK_SCRIPT, dbPath], {
+    cwd: process.cwd(),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const release = (): void => {
+    if (child.exitCode === null && !child.killed) child.kill();
+  };
+  cleanups.push(release);
+  await new Promise<void>((resolveReady, reject) => {
+    let stderr = '';
+    const timer = setTimeout(() => reject(new Error('lock helper timed out')), 15_000);
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (chunk.toString().includes('locked')) {
+        clearTimeout(timer);
+        resolveReady();
+      }
+    });
+    child.once('exit', () => {
+      clearTimeout(timer);
+      reject(new Error(`lock helper exited early: ${stderr}`));
+    });
+  });
+  return { release };
+}
 
 function tempDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -452,11 +492,11 @@ describe('busy databases', () => {
     const fixture = newFixture();
     seedCorpus(fixture);
     const destination = addDestination(fixture);
-    const locker = new BetterSqlite3(join(fixture.workspaceStorage, 'workspace-a', 'state.vscdb'));
-    cleanups.push(() => {
-      if (locker.open) locker.close();
-    });
-    locker.exec('BEGIN IMMEDIATE');
+    // POSIX fcntl locks are per-process, so the lock must be held by a separate process.
+    const locker = await holdWriteLockInChildProcess(
+      join(fixture.workspaceStorage, 'workspace-a', 'state.vscdb')
+    );
+    cleanups.push(() => locker.release());
     const before = fileState(fixture);
 
     await expect(
@@ -473,7 +513,7 @@ describe('busy databases', () => {
       code: 'CURSOR_RUNNING',
       message: expect.stringContaining('Close Cursor'),
     });
-    locker.exec('ROLLBACK');
+    locker.release();
     expect(fileState(fixture)).toBe(before);
   }, 30_000);
 });
@@ -505,17 +545,20 @@ describe('skipSafetyCopy', () => {
     vi.stubEnv('LOCALAPPDATA', join(appData, 'Local'));
     vi.stubEnv('HOME', appData);
     vi.stubEnv('USERPROFILE', appData);
+    vi.stubEnv('XDG_CONFIG_HOME', '');
     vi.stubEnv('CURSOR_DATA_PATH', '');
-    const root = join(appData, 'Cursor');
+    // Cursor/ directory above the platform-default User dir (differs per OS).
+    const userDir = platformDefaultUserDir();
+    const root = dirname(userDir);
     const projectA = join(appData, 'workspaces', 'a');
     const projectB = join(appData, 'workspaces', 'b');
-    for (const dir of [projectA, projectB, join(root, 'User', 'globalStorage')]) {
+    for (const dir of [projectA, projectB, join(userDir, 'globalStorage')]) {
       mkdirSync(dir, { recursive: true });
     }
     const fake: SessionIntegrityFixtureRoot = {
       root,
-      workspaceStorage: join(root, 'User', 'workspaceStorage'),
-      globalStorage: join(root, 'User', 'globalStorage'),
+      workspaceStorage: join(userDir, 'workspaceStorage'),
+      globalStorage: join(userDir, 'globalStorage'),
       storeRoot: join(appData, 'store'),
       projectA,
       projectB,

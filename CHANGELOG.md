@@ -64,6 +64,10 @@ published to npm; distributed as a GitHub release tarball.
 
 ### Fixed
 
+- Restore rollback no longer writes through a symbolic link or junction swapped into the restored
+  tree: such an entry is reported as a rollback failure and the restore fails closed with
+  `RESTORE_ROLLBACK_INCOMPLETE`, keeping the safety copy. Safety tests now plant their fake Cursor
+  tree at each OS's platform default, so they run on Linux and macOS as well as Windows.
 - `createBackup`/`restoreBackup` ignored `CURSOR_DATA_PATH` and always resolved the
   default Cursor directory. A caller configured for a custom data path could
   therefore back up, and with `force` restore into, the real default directory.

@@ -16,6 +16,7 @@ import {
   listSessionSummaries as coreListSessionSummaries,
   listWorkspaceInventory,
 } from '../../src/core/storage.js';
+import { normalizeWorkspacePath } from '../../src/core/workspace-scope.js';
 import { WorkspaceAmbiguityError } from '../../src/core/errors.js';
 import {
   createSessionIntegrityFixtureRoot,
@@ -274,8 +275,9 @@ describe('workspace scope resolution and fast not-found', () => {
       reason: 'case-or-separator-variant',
       score: 1,
     });
+    // Case folding is a platform property of the product normalizer, not a constant.
     expect(scope.suggestions.map(({ path }) => path)).toContain(
-      '/old/jaee/GraphQLApi'.toLowerCase()
+      normalizeWorkspacePath('/old/jaee/GraphQLApi')
     );
     expect(scope.suggestions.some(({ reason }) => reason === 'shared-trailing-components')).toBe(
       true
