@@ -188,6 +188,8 @@ describe('listWorkspaces — aggregates from the resolved session set', () => {
   it('counts a duplicate-ID hybrid once in every verified workspace membership', async () => {
     const root = mkdtempSync(join(canonicalTempDir(), 'ch-workspace-conflict-'));
     const previousHome = process.env['HOME'];
+    const previousAppData = process.env['APPDATA'];
+    const previousLocalAppData = process.env['LOCALAPPDATA'];
     const previousDataPath = process.env['CURSOR_DATA_PATH'];
     const previousStoreRoot = process.env['CURSOR_STORE_ROOT'];
     const sessionId = 'aaaaaaaa-0000-0000-0000-000000000099';
@@ -195,7 +197,11 @@ describe('listWorkspaces — aggregates from the resolved session set', () => {
     const storePath = '/workspace/store';
 
     try {
+      // The Composer root follows HOME on macOS/Linux but %APPDATA% on Windows;
+      // redirect both so the fixture can never land in a real Cursor directory.
       process.env['HOME'] = root;
+      process.env['APPDATA'] = join(root, 'AppData', 'Roaming');
+      process.env['LOCALAPPDATA'] = join(root, 'AppData', 'Local');
       delete process.env['CURSOR_DATA_PATH'];
       const storeRoot = join(root, 'cursor-store');
       process.env['CURSOR_STORE_ROOT'] = storeRoot;
@@ -259,6 +265,10 @@ describe('listWorkspaces — aggregates from the resolved session set', () => {
     } finally {
       if (previousHome === undefined) delete process.env['HOME'];
       else process.env['HOME'] = previousHome;
+      if (previousAppData === undefined) delete process.env['APPDATA'];
+      else process.env['APPDATA'] = previousAppData;
+      if (previousLocalAppData === undefined) delete process.env['LOCALAPPDATA'];
+      else process.env['LOCALAPPDATA'] = previousLocalAppData;
       if (previousDataPath === undefined) delete process.env['CURSOR_DATA_PATH'];
       else process.env['CURSOR_DATA_PATH'] = previousDataPath;
       if (previousStoreRoot === undefined) delete process.env['CURSOR_STORE_ROOT'];
