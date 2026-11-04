@@ -8,6 +8,10 @@
 
 // Export all public types
 export type {
+  CatalogInfo,
+  CatalogMode,
+  CatalogState,
+  CatalogStatus,
   Session,
   Message,
   ToolCall,
@@ -219,10 +223,20 @@ import type {
   SessionSourceInstance,
   WorkspaceScopeResolution,
 } from './types.js';
+import { getCatalogDeps } from '../core/catalog/catalog-deps.js';
+import {
+  awaitCatalogBuild,
+  listSummariesViaCatalog,
+  readCatalogStatus,
+  startCatalogRefresh,
+  catalogIneligibleReason,
+} from '../core/catalog/read.js';
+import type { CatalogStatus } from '../core/catalog/contract.js';
 import { mergeWithDefaults, resolveListWorkspacesConfig, type ResolvedConfig } from './config.js';
 import {
   DatabaseLockedError,
   DatabaseNotFoundError,
+  InvalidConfigError,
   InvalidFilterError,
   DriverNotAvailableError,
   NoDriverAvailableError,
@@ -907,14 +921,102 @@ function workspaceScopeFor(
 /**
  * List one message-free row for every logical session in the requested catalog window.
  *
- * @param config - Optional immutable data source, workspace, and pagination configuration.
- * @returns A zero-based page containing resolved and ambiguous logical summaries.
+ * @param config - Optional immutable data source, workspace, pagination, and catalog configuration.
+ * @returns A zero-based page containing resolved and ambiguous logical summaries. With
+ *   `config.catalog` of `'auto'` or `'strict'` the page also carries a `catalog` disclosure and
+ *   may be served from the sidecar snapshot; `'direct'` (default) never adds the field.
  * @throws {DatabaseLockedError} If Cursor holds a database lock that prevents the read.
  * @throws {DatabaseNotFoundError} If the configured data source does not exist.
  * @throws {InvalidConfigError} If a configuration field is invalid.
  * @throws {SessionIntegrityError} If catalog discovery cannot be completed safely.
  */
 export async function listSessionSummaries(
+  config?: LibraryConfig
+): Promise<PaginatedResult<SessionSummary>> {
+  if (config?.catalog === undefined || config.catalog === 'direct') {
+    return listSessionSummariesDirect(config);
+  }
+  mergeWithDefaults(config);
+  if (catalogIneligibleReason(config) === undefined) {
+    let deps;
+    try {
+      deps = await getCatalogDeps();
+    } catch {
+      return {
+        ...(await listSessionSummariesDirect({ ...config, catalog: 'direct' })),
+        catalog: { state: 'degraded', complete: true, reason: 'CATALOG_UNAVAILABLE' },
+      };
+    }
+    return listSummariesViaCatalog(config, deps, listSessionSummariesDirect);
+  }
+  return {
+    ...(await listSessionSummariesDirect({ ...config, catalog: 'direct' })),
+    catalog: {
+      state: 'unavailable',
+      complete: true,
+      reason: catalogIneligibleReason(config) as string,
+    },
+  };
+}
+
+/**
+ * Report the sidecar catalog status for the config's scope without reading conversation content.
+ *
+ * Scopes are identified by digest and the workspace request string as supplied by the caller
+ * (a path). Only the config's own scope is reported.
+ *
+ * @param config - Optional config identifying the scope and `catalogPath`.
+ * @returns Content-free status; `enabled` is false when the sidecar cannot be opened.
+ * @throws {InvalidConfigError} If a configuration field is invalid.
+ */
+export async function getCatalogStatus(config?: LibraryConfig): Promise<CatalogStatus> {
+  mergeWithDefaults(config);
+  let deps;
+  try {
+    deps = await getCatalogDeps();
+  } catch {
+    return { enabled: false, schemaVersion: 1, projectionEpoch: 1, scopes: [] };
+  }
+  return readCatalogStatus(config, deps);
+}
+
+/**
+ * Start a background refresh of the sidecar snapshot for the config's scope.
+ *
+ * @param config - Optional config identifying the scope and `catalogPath`.
+ * @returns The job id and whether a build for this scope was already running.
+ * @throws {InvalidConfigError} If a configuration field is invalid or the config cannot use the
+ *   catalog (`backupPath`, `readContext`, `diagnostics`).
+ */
+export async function refreshCatalog(
+  config?: LibraryConfig
+): Promise<{ jobId: string; alreadyRunning: boolean }> {
+  mergeWithDefaults(config);
+  const reason = catalogIneligibleReason(config);
+  if (reason !== undefined) {
+    throw new InvalidConfigError('catalog', reason, 'the catalog cannot be used with this option');
+  }
+  return startCatalogRefresh(config, await getCatalogDeps());
+}
+
+/**
+ * Wait for a running background catalog build of the config's scope.
+ *
+ * @param config - Optional config identifying the scope.
+ * @param timeoutMs - Maximum milliseconds to wait.
+ * @returns True when a build finished successfully within the timeout.
+ * @throws {InvalidConfigError} If a configuration field is invalid.
+ */
+export async function waitForCatalog(
+  config: LibraryConfig | undefined,
+  timeoutMs: number
+): Promise<boolean> {
+  mergeWithDefaults(config);
+  return awaitCatalogBuild(config, timeoutMs, await getCatalogDeps());
+}
+
+/** Direct (non-catalog) implementation of {@link listSessionSummaries}. */
+async function listSessionSummariesDirect(
   config?: LibraryConfig
 ): Promise<PaginatedResult<SessionSummary>> {
   const resolved = mergeWithDefaults(config);
