@@ -6728,6 +6728,11 @@ export async function searchSessions(
       }
     }
     const results: SearchResult[] = [];
+    const recent = options.order === 'recent' && options.limit > 0;
+    // Recent order stops hydrating once `limit` sessions matched. Ambiguity is still reported
+    // for the rest of the listing (it needs no hydration) so diagnostics equal the full scan.
+    let satisfied = false;
+    let exhaustive = true;
     for (const summary of summaries) {
       throwIfReadAborted(options.signal ?? context.signal);
       if (summary.resolutionState === 'ambiguous') {
@@ -6735,6 +6740,10 @@ export async function searchSessions(
         continue;
       }
       if (options.onlySessionIds && !options.onlySessionIds.has(summary.id)) continue;
+      if (satisfied) {
+        exhaustive = false;
+        continue;
+      }
       try {
         // diag:phase search:session-loop
         const session = await withPhase(context.io.diagnostics, 'search:session-loop', () =>
@@ -6760,7 +6769,10 @@ export async function searchSessions(
             snippets,
           };
           results.push(hit);
-          if (hydratedSessions) {
+          if (recent) {
+            if (hydratedSessions) hydratedSessions.set(hit, session);
+            if (results.length >= options.limit) satisfied = true;
+          } else if (hydratedSessions) {
             hydratedSessions.set(hit, session);
             // The final result is a stable top-N by match count, so anything ranked below N
             // now can never be returned; drop its session to keep retention bounded.
@@ -6778,7 +6790,10 @@ export async function searchSessions(
       }
     }
 
-    results.sort((a, b) => b.matchCount - a.matchCount);
+    if (options.outcome) options.outcome.exhaustive = exhaustive;
+    // Recent order keeps summary order; the default ranks by match count (stable, so ties keep
+    // summary order).
+    if (options.order !== 'recent') results.sort((a, b) => b.matchCount - a.matchCount);
 
     if (options.limit > 0) {
       return results.slice(0, options.limit);

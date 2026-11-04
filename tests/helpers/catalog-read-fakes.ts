@@ -15,6 +15,10 @@ export interface FakeCatalogState {
   /** Digest the "sources" currently have. */
   sourceDigest: string;
   settled: boolean;
+  /** When set, the fingerprint reports settled after this many unsettled checks. */
+  settleAfterChecks?: number;
+  /** When true, refresh requests are reported as rate limited (nothing runs). */
+  rateLimited?: boolean;
   failOpen: boolean;
   buildResult: 'done' | 'failed';
   refreshRequests: IndexerRequest[] | Array<Record<string, unknown>>;
@@ -101,7 +105,13 @@ export function createFakeCatalog(): { state: FakeCatalogState; deps: CatalogDep
     },
     computeSourceFingerprint: async () => makeFingerprint(state.sourceDigest),
     countFingerprintChanges: (a, b) => (a.digest === b.digest ? 0 : 3),
-    isFingerprintSettled: () => state.settled,
+    isFingerprintSettled: () => {
+      if (!state.settled && state.settleAfterChecks !== undefined) {
+        if (state.settleAfterChecks <= 0) state.settled = true;
+        else state.settleAfterChecks -= 1;
+      }
+      return state.settled;
+    },
     digestScopeKey: (key) => JSON.stringify(key),
     buildCatalogSnapshot: async (request): Promise<IndexerResponse> => {
       state.builds += 1;
@@ -121,7 +131,9 @@ export function createFakeCatalog(): { state: FakeCatalogState; deps: CatalogDep
     },
     requestCatalogRefresh: (request) => {
       (state.refreshRequests as Array<Record<string, unknown>>).push(request);
-      return { jobId: 'job-1', alreadyRunning: false };
+      return state.rateLimited
+        ? { jobId: 'job-1', alreadyRunning: false, rateLimited: true }
+        : { jobId: 'job-1', alreadyRunning: false };
     },
     waitForCatalogBuild: async () => undefined,
   };

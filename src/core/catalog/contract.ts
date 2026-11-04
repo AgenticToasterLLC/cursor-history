@@ -50,6 +50,12 @@ export interface CatalogInfo {
   changedSources?: number;
   /** True when a background refresh was scheduled or is running for this scope. */
   refreshScheduled?: boolean;
+  /**
+   * True when a refresh was requested but skipped because the previous build for this scope
+   * finished too recently (rate limit); nothing is running then and `refreshScheduled` is false.
+   * Absent otherwise.
+   */
+  refreshRateLimited?: true;
   /** Content-free reason code for degraded/unavailable states (never a message or path). */
   reason?: string;
 }
@@ -198,6 +204,15 @@ export interface CatalogStatus {
     snapshotBuiltAt?: string;
     verifiedAt?: string;
     buildMs?: number;
+    /**
+     * True when the served snapshot also carries the opt-in search index (built for this exact
+     * snapshot). Absent when the scope has no snapshot; false for a summary-only snapshot.
+     */
+    searchIndexed?: boolean;
+    /** Number of message rows in the search index (content-free count); absent without an index. */
+    searchMessageCount?: number;
+    /** Approximate on-disk bytes of the search index; absent without an index or if unreported. */
+    searchIndexBytes?: number;
     building: boolean;
     lastError?: { code: string; at: string };
   }>;
@@ -254,6 +269,8 @@ export type BuildCatalogSnapshot = (
 export type RequestCatalogRefresh = (request: Omit<IndexerRequest, 'type' | 'jobId'>) => {
   jobId: string;
   alreadyRunning: boolean;
+  /** True when skipped because the previous build for the scope finished too recently. */
+  rateLimited?: boolean;
 };
 /** C2: resolves when the scope's running build finishes, or undefined on timeout/none running. */
 export type WaitForCatalogBuild = (

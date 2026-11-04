@@ -142,18 +142,60 @@ export function reasonOf(error: unknown): string {
 const requestedAt = new Map<string, number>();
 const BUILDING_TTL_MS = 2 * 60_000;
 
-/** @internal */
-export function requestRefresh(deps: CatalogDeps, scope: ResolvedCatalogScope): boolean {
+/**
+ * Request a background refresh and describe the outcome for `CatalogInfo`. A rate-limited
+ * request runs nothing, so it is reported as not scheduled plus `refreshRateLimited`.
+ * @internal
+ */
+export function requestRefreshInfo(
+  deps: CatalogDeps,
+  scope: ResolvedCatalogScope
+): Pick<CatalogInfo, 'refreshScheduled' | 'refreshRateLimited'> {
   try {
-    deps.requestCatalogRefresh({
+    const handle = deps.requestCatalogRefresh({
       scopeKey: scope.scopeKey,
       readConfig: scope.readConfig,
       storePath: scope.storePath,
     });
+    if (handle.rateLimited === true) return { refreshScheduled: false, refreshRateLimited: true };
     requestedAt.set(scope.digest, Date.now());
-    return true;
+    return { refreshScheduled: true };
   } catch {
-    return false;
+    return { refreshScheduled: false };
+  }
+}
+
+/** @internal */
+export function requestRefresh(deps: CatalogDeps, scope: ResolvedCatalogScope): boolean {
+  return requestRefreshInfo(deps, scope).refreshScheduled === true;
+}
+
+/** Longest a strict read waits for an unchanged fingerprint to settle after a build. */
+const SETTLE_WAIT_MAX_MS = 3000;
+const SETTLE_POLL_MS = 200;
+
+/**
+ * Strict mode, after a build: re-fingerprint and look the snapshot up. When the sources are
+ * unchanged since the build but still inside the settle window (recently written), wait it out
+ * (bounded by 3 s, polling) and serve `ready`; report not-ready only when the sources really
+ * changed again or the bounded wait expired.
+ * @internal
+ */
+export async function lookupAfterBuild(
+  store: CatalogStore,
+  deps: CatalogDeps,
+  scope: ResolvedCatalogScope
+): Promise<Lookup> {
+  const deadline = Date.now() + SETTLE_WAIT_MAX_MS;
+  for (;;) {
+    const current = await deps.computeSourceFingerprint(scope.inputs);
+    const found = lookup(store, deps, scope, current);
+    const unsettledOnly =
+      found.kind === 'stale' && found.header.fingerprint.digest === current.digest;
+    if (!unsettledOnly || Date.now() >= deadline) return found;
+    await new Promise<void>((done) =>
+      setTimeout(done, Math.min(SETTLE_POLL_MS, Math.max(1, deadline - Date.now())))
+    );
   }
 }
 
@@ -254,8 +296,7 @@ export async function listSummariesViaCatalog(
       if (response.type === 'failed') {
         fallback = { state: 'degraded', complete: true, reason: reasonOf(response) };
       } else {
-        const after = await deps.computeSourceFingerprint(scope.inputs);
-        found = lookup(store, deps, scope, after);
+        found = await lookupAfterBuild(store, deps, scope);
         if (found.kind !== 'ready') {
           fallback = { state: 'degraded', complete: true, reason: 'CHANGED_DURING_BUILD' };
         }
@@ -282,7 +323,7 @@ export async function listSummariesViaCatalog(
           complete: false,
           snapshotBuiltAt: found.header.builtAt,
           changedSources: found.changedSources,
-          refreshScheduled: requestRefresh(deps, scope),
+          ...requestRefreshInfo(deps, scope),
         });
       } else {
         fallback = { state: 'building', complete: true, refreshScheduled: false };
@@ -304,7 +345,7 @@ export async function listSummariesViaCatalog(
   const result = await runDirect(info);
   if (info.state === 'building' && scope) {
     // Request after the direct read so the worker does not compete with it.
-    result.catalog = { ...info, refreshScheduled: requestRefresh(deps, scope) };
+    result.catalog = { ...info, ...requestRefreshInfo(deps, scope) };
   }
   return result;
 }
@@ -383,7 +424,18 @@ export async function readCatalogStatus(
         state,
         building,
         ...(header
-          ? { rowCount: header.rowCount, snapshotBuiltAt: header.builtAt, buildMs: header.buildMs }
+          ? {
+              rowCount: header.rowCount,
+              snapshotBuiltAt: header.builtAt,
+              buildMs: header.buildMs,
+              searchIndexed: header.searchIndexed === true,
+              ...(header.searchMessageCount !== undefined
+                ? { searchMessageCount: header.searchMessageCount }
+                : {}),
+              ...(header.searchIndexBytes !== undefined
+                ? { searchIndexBytes: header.searchIndexBytes }
+                : {}),
+            }
           : {}),
         ...(scopeState?.verifiedAt ? { verifiedAt: scopeState.verifiedAt } : {}),
         ...(scopeState?.lastError ? { lastError: scopeState.lastError } : {}),
@@ -405,19 +457,19 @@ export async function readCatalogStatus(
  * Start a background refresh of the config's scope.
  * @param config - Config identifying the scope.
  * @param deps - Catalog dependencies.
- * @returns The job id and whether a build was already running.
+ * @returns The job id, whether a build was already running, and `rateLimited` when skipped.
  */
 export function startCatalogRefresh(
   config: LibraryConfig | undefined,
   deps: CatalogDeps
-): { jobId: string; alreadyRunning: boolean } {
+): { jobId: string; alreadyRunning: boolean; rateLimited?: boolean } {
   const scope = resolveCatalogScope(config, deps);
   const handle = deps.requestCatalogRefresh({
     scopeKey: scope.scopeKey,
     readConfig: scope.readConfig,
     storePath: scope.storePath,
   });
-  requestedAt.set(scope.digest, Date.now());
+  if (handle.rateLimited !== true) requestedAt.set(scope.digest, Date.now());
   return handle;
 }
 

@@ -231,6 +231,74 @@ describe('catalog state machine', () => {
   });
 });
 
+describe('refresh disclosure and strict settle wait', () => {
+  it('reports a rate-limited refresh as not scheduled', async () => {
+    await seedReady(base);
+    fake.state.sourceDigest = 'fp-2';
+    fake.state.rateLimited = true;
+    const r = await listSessionSummaries({ ...base, catalog: 'auto' });
+    expect(r.catalog).toMatchObject({
+      state: 'stale',
+      refreshScheduled: false,
+      refreshRateLimited: true,
+    });
+    const missing = await listSessionSummaries({
+      dataPath: join(tmpdir(), 'catalog-read-rate', 'workspaceStorage'),
+      catalog: 'auto',
+    });
+    expect(missing.catalog).toMatchObject({
+      state: 'building',
+      refreshScheduled: false,
+      refreshRateLimited: true,
+    });
+    fake.state.rateLimited = false;
+    const ok = await listSessionSummaries({ ...base, catalog: 'auto' });
+    expect(ok.catalog?.refreshScheduled).toBe(true);
+    expect(ok.catalog && 'refreshRateLimited' in ok.catalog).toBe(false);
+  });
+
+  it('refreshCatalog returns rateLimited', async () => {
+    fake.state.rateLimited = true;
+    const own: LibraryConfig = {
+      dataPath: join(tmpdir(), 'catalog-read-rate2', 'workspaceStorage'),
+    };
+    expect(await refreshCatalog(own)).toEqual({
+      jobId: 'job-1',
+      alreadyRunning: false,
+      rateLimited: true,
+    });
+  });
+
+  it('strict waits out an unsettled fingerprint and serves ready', async () => {
+    fake.state.settled = false;
+    fake.state.settleAfterChecks = 2;
+    const r = await listSessionSummaries({ ...base, catalog: 'strict' });
+    expect(r.catalog).toMatchObject({ state: 'ready', complete: true });
+  });
+
+  it('strict reports CHANGED_DURING_BUILD only when the sources really changed', async () => {
+    const direct = fake.state.readDirect!;
+    fake.state.readDirect = async (readConfig) => {
+      const out = await direct(readConfig);
+      fake.state.sourceDigest = 'fp-moved';
+      return out;
+    };
+    // The fake builder stamps the header with the digest current at publish time ('fp-moved'
+    // is set after the read, before publish); change it again afterwards to simulate a change.
+    const build = fake.deps.buildCatalogSnapshot;
+    fake.deps.buildCatalogSnapshot = async (request) => {
+      const response = await build(request);
+      fake.state.sourceDigest = 'fp-moved-again';
+      return response;
+    };
+    const r = await listSessionSummaries({ ...base, catalog: 'strict' });
+    expect(r.catalog).toMatchObject({
+      state: 'degraded',
+      reason: 'CHANGED_DURING_BUILD',
+    });
+  });
+});
+
 describe('direct mode and fallback rules', () => {
   it('default and explicit direct have no catalog field and are byte-identical', async () => {
     const a = await listSessionSummaries(base);

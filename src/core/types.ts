@@ -551,6 +551,17 @@ export interface SearchOptions {
    * Summary order is preserved, so ranking and tie order equal the full scan restricted to them.
    */
   onlySessionIds?: ReadonlySet<string>;
+  /**
+   * Result order. `'match-count'` (default) hydrates every candidate and ranks by match count.
+   * `'recent'` verifies candidates in summary order (newest created first), stops once `limit`
+   * sessions matched, and returns them in summary order.
+   */
+  order?: 'match-count' | 'recent';
+  /**
+   * Internal out-parameter. Set by the search: `exhaustive` is true only when every candidate
+   * session was verified (always true for `'match-count'`).
+   */
+  outcome?: { exhaustive: boolean };
 }
 
 /**

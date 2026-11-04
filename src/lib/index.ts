@@ -230,6 +230,7 @@ import {
   readCatalogStatus,
   startCatalogRefresh,
   catalogIneligibleReason,
+  reasonOf,
 } from '../core/catalog/read.js';
 import type { CatalogStatus } from '../core/catalog/contract.js';
 import type { SearchPlan } from '../core/catalog/search-index.js';
@@ -985,19 +986,47 @@ export async function getCatalogStatus(config?: LibraryConfig): Promise<CatalogS
  * Start a background refresh of the sidecar snapshot for the config's scope.
  *
  * @param config - Optional config identifying the scope and `catalogPath`.
- * @returns The job id and whether a build for this scope was already running.
+ * @returns The job id and whether a build for this scope was already running. `rateLimited` is
+ *   true when no build was started because the previous build for this scope finished less than
+ *   10 seconds ago (the job id then names nothing that runs).
  * @throws {InvalidConfigError} If a configuration field is invalid or the config cannot use the
  *   catalog (`backupPath`, `readContext`, `diagnostics`).
  */
 export async function refreshCatalog(
   config?: LibraryConfig
-): Promise<{ jobId: string; alreadyRunning: boolean }> {
+): Promise<{ jobId: string; alreadyRunning: boolean; rateLimited?: boolean }> {
   mergeWithDefaults(config);
   const reason = catalogIneligibleReason(config);
   if (reason !== undefined) {
     throw new InvalidConfigError('catalog', reason, 'the catalog cannot be used with this option');
   }
   return startCatalogRefresh(config, await getCatalogDeps());
+}
+
+/**
+ * Terminate every running background catalog build worker of this process (for example at
+ * shutdown, or before deleting the catalog file). Builds that were cancelled report the content-free
+ * error code `BUILD_CANCELLED` as the scope's `lastError`. Resolves once the workers stopped;
+ * does nothing when no build is running.
+ *
+ * @returns A promise that resolves when all running builds were terminated.
+ * @throws {InvalidConfigError} If the catalog modules cannot be loaded in this environment (then
+ *   no build can be running either; there is nothing to recover).
+ *
+ * @example
+ * process.on('SIGTERM', async () => {
+ *   await cancelCatalogRefreshes();
+ *   process.exit(0);
+ * });
+ */
+export async function cancelCatalogRefreshes(): Promise<void> {
+  let deps;
+  try {
+    deps = await getCatalogDeps();
+  } catch (error) {
+    throw new InvalidConfigError('catalog', reasonOf(error), 'the catalog cannot be loaded');
+  }
+  await deps.cancelCatalogRefreshes?.();
 }
 
 /**
@@ -1304,6 +1333,12 @@ export async function getSession(index: number | string, config?: LibraryConfig)
 /**
  * Search across all sessions for matching content.
  *
+ * Results are ranked by match count (descending) unless `config.searchOrder` is `'recent'`: that
+ * distinct, disclosed mode verifies sessions newest-created first, stops after `limit` matching
+ * sessions and returns them in that order (see {@link LibraryConfig.searchOrder}). When
+ * `searchOrder` is set, the returned array carries the non-enumerable `searchOrder` and
+ * `searchExhaustive` properties.
+ *
  * @param query - Search query string (case-insensitive substring match)
  * @param config - Optional configuration (dataPath, workspace filter, context lines)
  * @returns Array of search results with context
@@ -1326,11 +1361,31 @@ export async function getSession(index: number | string, config?: LibraryConfig)
  * @example
  * // Search within specific workspace
  * const results = await searchSessions('bug', { workspace: '/path/to/project' });
+ *
+ * @example
+ * // Fast, explicitly disclosed "most recent matches" mode: stops after 10 matching sessions
+ * const results = await searchSessions('TypeError', { limit: 10, searchOrder: 'recent' });
+ * results.searchOrder; // 'recent' (listing order, newest created first; not ranked by match count)
+ * results.searchExhaustive; // false when it stopped early and more matching sessions may exist
  */
 export async function searchSessions(
   query: string,
   config?: LibraryConfig
 ): Promise<SearchResultList> {
+  const outcome = { exhaustive: true };
+  const disclose = (target: object, name: string, value: unknown): void => {
+    Object.defineProperty(target, name, {
+      value,
+      enumerable: false,
+      configurable: true,
+      writable: false,
+    });
+  };
+  const discloseOrder = (results: SearchResultList): void => {
+    if (config?.searchOrder === undefined) return;
+    disclose(results, 'searchOrder', config.searchOrder);
+    disclose(results, 'searchExhaustive', outcome.exhaustive);
+  };
   if (config?.searchIndex === true && config.catalog !== undefined && config.catalog !== 'direct') {
     mergeWithDefaults(config);
     let plan: SearchPlan;
@@ -1348,22 +1403,18 @@ export async function searchSessions(
     const results = await searchSessionsScan(
       query,
       config,
-      plan.mode === 'indexed' ? plan.candidateSessionIds : undefined
+      plan.mode === 'indexed' ? plan.candidateSessionIds : undefined,
+      outcome
     );
-    const disclose = (name: string, value: unknown): void => {
-      Object.defineProperty(results, name, {
-        value,
-        enumerable: false,
-        configurable: true,
-        writable: false,
-      });
-    };
-    disclose('searchMode', plan.mode);
-    if (plan.mode === 'direct') disclose('searchModeReason', plan.reason);
-    if (plan.catalog) disclose('catalog', plan.catalog);
+    disclose(results, 'searchMode', plan.mode);
+    if (plan.mode === 'direct') disclose(results, 'searchModeReason', plan.reason);
+    if (plan.catalog) disclose(results, 'catalog', plan.catalog);
+    discloseOrder(results);
     return results;
   }
-  return searchSessionsScan(query, config);
+  const results = await searchSessionsScan(query, config, undefined, outcome);
+  discloseOrder(results);
+  return results;
 }
 
 /**
@@ -1373,7 +1424,8 @@ export async function searchSessions(
 async function searchSessionsScan(
   query: string,
   config?: LibraryConfig,
-  candidateSessionIds?: ReadonlySet<string>
+  candidateSessionIds?: ReadonlySet<string>,
+  outcome?: { exhaustive: boolean }
 ): Promise<SearchResultList> {
   try {
     const resolved = mergeWithDefaults(config);
@@ -1390,6 +1442,8 @@ async function searchSessionsScan(
           workspacePath: bound.workspace,
           includeCrossWorkspaceSources: bound.includeCrossWorkspaceSources,
           ...(candidateSessionIds ? { onlySessionIds: candidateSessionIds } : {}),
+          ...(config?.searchOrder === 'recent' ? { order: 'recent' as const } : {}),
+          ...(outcome ? { outcome } : {}),
         },
         bound.dataPath,
         bound.backupPath,
