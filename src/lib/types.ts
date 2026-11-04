@@ -24,6 +24,19 @@ import type {
   WorkspaceScopeResolution,
 } from '../core/types.js';
 
+import type { CatalogInfo as ContractCatalogInfo, CatalogMode } from '../core/catalog/contract.js';
+
+export type { CatalogMode, CatalogState, CatalogStatus } from '../core/catalog/contract.js';
+
+/**
+ * Catalog disclosure attached to catalog-aware results (never present in `direct` mode).
+ * Extends the contract info with a content-free `reason` for `degraded`/`unavailable` states.
+ */
+export interface CatalogInfo extends ContractCatalogInfo {
+  /** Content-free machine reason (an error code or option name), never a path or message text. */
+  reason?: string;
+}
+
 export type {
   WorkspaceInventoryEntry,
   WorkspaceScopeResolution,
@@ -422,6 +435,19 @@ export interface LibraryConfig {
   /** Reuse an explicitly bound opaque read context. */
   readContext?: SessionReadContext;
 
+  /**
+   * How `listSessionSummaries` may use the disposable sidecar catalog (default `'direct'`:
+   * unchanged behavior, no `catalog` field on results). `'auto'` serves ready or stale snapshots
+   * immediately and refreshes in the background; `'strict'` serves only verified snapshots,
+   * building synchronously when needed. Combined with `backupPath`, `readContext` or
+   * `diagnostics` the catalog is skipped and the direct path is used with
+   * `catalog.state === 'unavailable'`.
+   */
+  catalog?: CatalogMode;
+
+  /** Override the sidecar catalog file location (default: platform cache dir). */
+  catalogPath?: string;
+
   /** Cooperatively cancel this operation and nested parsing/snapshot work. */
   signal?: AbortSignal;
 }
@@ -589,6 +615,12 @@ export interface PaginatedResult<T> {
    * told apart from an unknown workspace. Purely additive; absent on unrelated lists.
    */
   scope?: WorkspaceScopeResolution;
+
+  /**
+   * Catalog disclosure. Present only when the call requested `catalog: 'auto' | 'strict'`;
+   * absent in `direct` mode so direct results stay byte-identical.
+   */
+  catalog?: CatalogInfo;
 }
 
 /**

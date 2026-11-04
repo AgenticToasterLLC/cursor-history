@@ -7,12 +7,19 @@
 
 import { realpathSync } from 'node:fs';
 import { resolve, normalize } from 'node:path';
-import type { LibraryConfig, ListWorkspacesConfig, SqliteDriverName } from './types.js';
+import type {
+  CatalogMode,
+  LibraryConfig,
+  ListWorkspacesConfig,
+  SqliteDriverName,
+} from './types.js';
 import { InvalidConfigError, DatabaseNotFoundError } from './errors.js';
 import { getCursorDataPath } from '../lib/platform.js';
 
 /** Valid SQLite driver names */
 const VALID_SQLITE_DRIVERS: SqliteDriverName[] = ['better-sqlite3', 'node:sqlite'];
+
+const VALID_CATALOG_MODES: CatalogMode[] = ['direct', 'auto', 'strict'];
 
 /**
  * Merged configuration with behavioral defaults applied.
@@ -36,6 +43,8 @@ export interface ResolvedConfig {
   readContext?: LibraryConfig['readContext'];
   signal?: AbortSignal;
   diagnostics?: LibraryConfig['diagnostics'];
+  catalog: CatalogMode;
+  catalogPath?: string;
 }
 
 /**
@@ -137,6 +146,21 @@ export function validateConfig(config?: LibraryConfig): void {
     );
   }
 
+  if (config.catalog !== undefined && !VALID_CATALOG_MODES.includes(config.catalog)) {
+    throw new InvalidConfigError(
+      'catalog',
+      config.catalog,
+      `must be one of: ${VALID_CATALOG_MODES.join(', ')}`
+    );
+  }
+
+  if (
+    config.catalogPath !== undefined &&
+    (typeof config.catalogPath !== 'string' || config.catalogPath.length === 0)
+  ) {
+    throw new InvalidConfigError('catalogPath', config.catalogPath, 'must be a non-empty string');
+  }
+
   if (
     config.readContext !== undefined &&
     (typeof config.readContext !== 'object' || config.readContext === null)
@@ -169,6 +193,8 @@ export function mergeWithDefaults(config?: LibraryConfig): ResolvedConfig {
     readContext: config?.readContext,
     signal: config?.signal,
     diagnostics: config?.diagnostics,
+    catalog: config?.catalog ?? 'direct',
+    catalogPath: config?.catalogPath,
   };
 }
 
