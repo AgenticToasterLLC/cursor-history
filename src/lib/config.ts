@@ -7,7 +7,7 @@
 
 import { realpathSync } from 'node:fs';
 import { resolve, normalize } from 'node:path';
-import type { LibraryConfig, SqliteDriverName } from './types.js';
+import type { LibraryConfig, ListWorkspacesConfig, SqliteDriverName } from './types.js';
 import { InvalidConfigError, DatabaseNotFoundError } from './errors.js';
 import { getCursorDataPath } from '../lib/platform.js';
 
@@ -187,4 +187,70 @@ export function resolveDatabasePath(configPath?: string): string {
   } catch {
     throw new DatabaseNotFoundError(resolved);
   }
+}
+
+/** Default and maximum page size for workspace inventory listings. */
+export const WORKSPACE_INVENTORY_DEFAULT_LIMIT = 50;
+export const WORKSPACE_INVENTORY_MAX_LIMIT = 1000;
+
+/**
+ * Validate and default a workspace-inventory configuration.
+ * @throws {InvalidConfigError} If any field is invalid
+ */
+export function resolveListWorkspacesConfig(config?: ListWorkspacesConfig): {
+  dataPath?: string;
+  backupPath?: string;
+  signal?: AbortSignal;
+  diagnostics?: ListWorkspacesConfig['diagnostics'];
+  query: string;
+  limit: number;
+  offset: number;
+} {
+  if (config?.dataPath !== undefined && typeof config.dataPath !== 'string') {
+    throw new InvalidConfigError('dataPath', config.dataPath, 'must be a string');
+  }
+  if (config?.backupPath !== undefined && typeof config.backupPath !== 'string') {
+    throw new InvalidConfigError('backupPath', config.backupPath, 'must be a string');
+  }
+  if (config?.query !== undefined && typeof config.query !== 'string') {
+    throw new InvalidConfigError('query', config.query, 'must be a string');
+  }
+  const limit = config?.limit ?? WORKSPACE_INVENTORY_DEFAULT_LIMIT;
+  if (
+    typeof limit !== 'number' ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > WORKSPACE_INVENTORY_MAX_LIMIT
+  ) {
+    throw new InvalidConfigError(
+      'limit',
+      config?.limit,
+      `must be an integer between 1 and ${WORKSPACE_INVENTORY_MAX_LIMIT}`
+    );
+  }
+  const offset = config?.offset ?? 0;
+  if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) {
+    throw new InvalidConfigError('offset', config?.offset, 'must be a non-negative integer');
+  }
+  if (
+    config?.diagnostics !== undefined &&
+    (typeof config.diagnostics !== 'object' ||
+      config.diagnostics === null ||
+      typeof config.diagnostics.onEvent !== 'function')
+  ) {
+    throw new InvalidConfigError(
+      'diagnostics',
+      config.diagnostics,
+      'must be an object with an onEvent function'
+    );
+  }
+  return {
+    dataPath: config?.dataPath,
+    backupPath: config?.backupPath,
+    signal: config?.signal,
+    diagnostics: config?.diagnostics,
+    query: config?.query ?? '',
+    limit,
+    offset,
+  };
 }

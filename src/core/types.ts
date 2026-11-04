@@ -948,3 +948,52 @@ export interface ContextWindowStatus {
   /** Percentage of context window remaining (0-100) */
   percentageRemaining: number;
 }
+
+/** One workspace known to local Cursor history, discovered without opening conversation databases. */
+export interface WorkspaceInventoryEntry {
+  /** Display path, normalized with the same rules as workspace scope matching. */
+  path: string;
+  /** Distinct raw spellings observed (workspace.json folder/workspace URIs decoded to paths, Store cwd values), code-point sorted. */
+  aliases: string[];
+  /** Storage generations that reference this path. */
+  sources: Array<'composer' | 'store'>;
+  /** Opaque Composer workspaceStorage directory names for this path, code-point sorted. */
+  workspaceStorageIds: string[];
+  /** Most recent mtime (ISO-8601) of the path's workspace state.vscdb / Store metadata files, from fs.stat only; absent if unknown. */
+  lastModifiedAt?: string;
+}
+
+/** A known workspace path that resembles an unmatched workspace request. */
+export interface WorkspaceSuggestion {
+  /** Normalized known workspace path. */
+  path: string;
+  /** Why this path resembles the request, in descending priority. */
+  reason:
+    'case-or-separator-variant' | 'shared-trailing-components' | 'same-basename' | 'substring';
+  /** Heuristic similarity in the range (0, 1]; higher is closer. Consistent with suggestion order. */
+  score: number;
+}
+
+/** How a workspace request resolved against known workspace history. */
+export type WorkspaceScopeResolution =
+  | { state: 'unscoped' }
+  | {
+      state: 'matched';
+      requested: string;
+      path: string;
+      matchKind: WorkspaceMatchKind;
+    }
+  | {
+      /** The workspace matched but contains zero sessions. */
+      state: 'empty';
+      requested: string;
+      path: string;
+      matchKind: WorkspaceMatchKind;
+    }
+  | {
+      state: 'not-found';
+      requested: string;
+      normalizedRequest: string;
+      /** Up to five known paths, best first. */
+      suggestions: WorkspaceSuggestion[];
+    };

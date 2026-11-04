@@ -3,7 +3,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   openDatabase as openDatabaseAsync,
@@ -36,6 +36,7 @@ import type {
   SessionResolution,
   SourceRole,
   BackupManifest,
+  WorkspaceInventoryEntry,
 } from './types.js';
 import {
   getCursorDataPath,
@@ -62,7 +63,11 @@ import {
 } from './backup.js';
 import { ZipArchiveFormatError } from './zip-stream.js';
 import { debugLogStorage } from './database/debug.js';
-import { discoverStoreSessions, getStorePhysicalOccurrences } from './store-stack/discover.js';
+import {
+  discoverStoreSessions,
+  discoverStoreWorkspaceCwds,
+  getStorePhysicalOccurrences,
+} from './store-stack/discover.js';
 import type { StorePhysicalOccurrence, StoreSession } from './store-stack/types.js';
 import { mergeCrossStackSessions, applyStoreMergeToSummary } from './store-stack/merge.js';
 import {
@@ -105,8 +110,17 @@ import {
   sessionIdsEqual,
 } from './session-id.js';
 import {
+  getWorkspaceScopeResolution,
+  recordWorkspaceScope,
+  recordWorkspaceScopeSessionCount,
+  type RecordedWorkspaceScope,
+} from './workspace-scope-state.js';
+import {
+  buildWorkspaceInventory,
+  isPublicWorkspacePath,
   normalizeWorkspacePath,
   resolveWorkspaceScope,
+  suggestWorkspacePaths,
   type WorkspaceScopeResult,
 } from './workspace-scope.js';
 import {
@@ -131,6 +145,8 @@ import {
   type ResolvedSessionTimestamps,
   type SessionMetadataTimestamps,
 } from './timestamps.js';
+
+export { getWorkspaceScopeResolution };
 
 export interface ContextOwnershipSnapshot {
   readonly resolvedSessionCapacity: number;
@@ -1315,6 +1331,136 @@ async function findComposerWorkspaceInventory(
     });
   }
   return inventory;
+}
+
+function notFoundWorkspaceScope(
+  requested: string,
+  normalizedRequest: string,
+  knownPaths: readonly string[]
+): RecordedWorkspaceScope {
+  return {
+    state: 'not-found',
+    requested,
+    normalizedRequest,
+    suggestions: suggestWorkspacePaths(
+      requested,
+      knownPaths.filter((path) => isPublicWorkspacePath(path))
+    ),
+  };
+}
+
+/**
+ * Resolve the request against the cheap metadata-only inventory and return a not-found
+ * outcome only when that is provably the same answer the full resolution would give.
+ *
+ * Superset argument. The full resolution matches against (a) the Composer inventory (the
+ * very same list reused here) plus (b) "verified" Store workspace paths, i.e. the normalized
+ * `workspacePath` of every physical Store occurrence kept by metadata discovery. Every such
+ * occurrence path is a `meta.json` `cwd` (chats/ and acp-sessions/ occurrences take it
+ * directly; transcript occurrences only inherit a unique same-UUID metadata `cwd`).
+ * "Verification" in discovery can therefore only DROP paths: it omits sessions that declare
+ * `hasConversation: false`, collapses duplicate replicas and refuses to guess a transcript's
+ * path; it never adds one. `discoverStoreWorkspaceCwds` returns every `cwd` in those same
+ * sidecar locations with no such filtering, so (cheap set) is a superset of (verified set).
+ * Exact/unique-suffix matching is monotone in the candidate set: if the request matches
+ * nothing in a superset, it matches nothing in the subset, so cheap not-found implies full
+ * not-found and the early return is safe. In every other case this returns undefined and the
+ * existing path decides: a cheap match may be dropped by verification, a cheap ambiguity may
+ * dissolve once candidates are dropped (so it must not throw early), and an un-normalizable
+ * spelling or an unreadable sidecar prevents proving the superset. Backups carry no Store
+ * stack, so their inventory is exactly the full candidate set.
+ */
+function preflightWorkspaceNotFound(
+  context: SessionReadContext,
+  request: string,
+  composerInventory: readonly Workspace[],
+  customDataPath: string | undefined,
+  backupPath: string | undefined
+): RecordedWorkspaceScope | undefined {
+  const known = composerInventory.map(({ path }) => path);
+  if (!backupPath) {
+    try {
+      for (const { cwd } of discoverStoreWorkspaceCwds(getStoreStackRoot(customDataPath), {
+        signal: context.signal,
+        io: context.io,
+      })) {
+        known.push(cwd);
+      }
+    } catch (error) {
+      if (error instanceof IoObserverError || (error as Error)?.name === 'AbortError') throw error;
+      return undefined;
+    }
+  }
+  try {
+    const result = resolveWorkspaceScope(request, known);
+    return result.kind === 'not-found'
+      ? notFoundWorkspaceScope(request, result.normalizedRequest, known)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function statMtimeMs(path: string): number | undefined {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Build the metadata-only workspace inventory: Composer `workspace.json` paths plus Store
+ * `meta.json` `cwd` values. No conversation or state database is opened.
+ * @param customDataPath - Custom Cursor data path (for live data)
+ * @param backupPath - Path to backup zip file (reads the manifest inventory; no Store data)
+ * @param readOptions - Operation options (signal, I/O observer, diagnostics)
+ */
+export async function listWorkspaceInventory(
+  customDataPath?: string,
+  backupPath?: string,
+  readOptions: StorageReadOperationOptions = {}
+): Promise<WorkspaceInventoryEntry[]> {
+  const context = createSessionReadContext({
+    dataPath: customDataPath,
+    backupPath,
+    sourceReadLimits: readOptions.sourceReadLimits,
+    signal: readOptions.signal,
+    sqliteDriver: readOptions.sqliteDriver,
+    ioObserver: readOptions.ioObserver,
+    io: readOptions.io,
+    onDiagnostic: readOptions.onDiagnostic,
+    diagnostics: readOptions.diagnostics,
+  });
+  try {
+    const composer = await findComposerWorkspaceInventory(customDataPath, backupPath, context);
+    const observations: Array<Parameters<typeof buildWorkspaceInventory>[0][number]> = composer.map(
+      (workspace) => {
+        const modifiedMs = backupPath ? undefined : statMtimeMs(workspace.dbPath);
+        return {
+          raw: workspace.path,
+          source: 'composer' as const,
+          workspaceStorageId: workspace.id,
+          ...(modifiedMs === undefined ? {} : { modifiedMs }),
+        };
+      }
+    );
+    if (!backupPath) {
+      for (const { cwd, modifiedMs } of discoverStoreWorkspaceCwds(
+        getStoreStackRoot(customDataPath),
+        { signal: context.signal, io: context.io }
+      )) {
+        observations.push({
+          raw: cwd,
+          source: 'store',
+          ...(modifiedMs === undefined ? {} : { modifiedMs }),
+        });
+      }
+    }
+    return buildWorkspaceInventory(observations).entries;
+  } finally {
+    await context.dispose();
+  }
 }
 
 /** Read only native Composer UUIDs from one workspace catalog row. */
@@ -3976,26 +4122,60 @@ export async function listSessions(
   let workspaceScopeResult: WorkspaceScopeResult | undefined;
   let activeWorkspacePath: string | undefined;
   let composerWorkspaceInventory: Workspace[] = [];
-  const storeCatalogSessions = backupPath
-    ? []
-    : await getStoreSessionsCached(context, customDataPath, backupPath);
-  diagPhases.next('scope-resolution'); // diag:phase scope-resolution
   if (options.workspacePath) {
+    // Fast not-found preflight: resolve the request against the cheap metadata-only inventory
+    // before Store payload discovery, any database open, or any global scan.
     composerWorkspaceInventory = await findComposerWorkspaceInventory(
       customDataPath,
       backupPath,
       context
     );
+    const preflight = preflightWorkspaceNotFound(
+      context,
+      options.workspacePath,
+      composerWorkspaceInventory,
+      customDataPath,
+      backupPath
+    );
+    if (preflight) {
+      recordWorkspaceScope(context, preflight);
+      context.summaries = [];
+      diagPhases.end();
+      return [];
+    }
+  } else {
+    recordWorkspaceScope(context, { state: 'unscoped' });
+  }
+  const storeCatalogSessions = backupPath
+    ? []
+    : await getStoreSessionsCached(context, customDataPath, backupPath);
+  diagPhases.next('scope-resolution'); // diag:phase scope-resolution
+  if (options.workspacePath) {
     const storeWorkspacePaths = storeCatalogSessions.flatMap(verifiedStoreWorkspacePaths);
-    workspaceScopeResult = resolveWorkspaceScope(options.workspacePath, [
+    const knownWorkspacePaths = [
       ...composerWorkspaceInventory.map(({ path }) => path),
       ...storeWorkspacePaths,
-    ]);
+    ];
+    workspaceScopeResult = resolveWorkspaceScope(options.workspacePath, knownWorkspacePaths);
     if (workspaceScopeResult.kind === 'not-found') {
+      recordWorkspaceScope(
+        context,
+        notFoundWorkspaceScope(
+          options.workspacePath,
+          workspaceScopeResult.normalizedRequest,
+          knownWorkspacePaths
+        )
+      );
       if (context) context.summaries = [];
       return [];
     }
     activeWorkspacePath = workspaceScopeResult.path;
+    recordWorkspaceScope(context, {
+      state: 'matched',
+      requested: options.workspacePath,
+      path: workspaceScopeResult.path,
+      matchKind: workspaceScopeResult.matchKind,
+    });
   }
   const scopedBackupGlobalSessionIds = new Set<string>();
   let scopedLegacyBackupGlobalMembershipUnknown = false;
@@ -5367,11 +5547,27 @@ export async function listSessionSummaries(
   }
   await listSessions(options, customDataPath, backupPath, context);
   const rows = context.logicalSummaries ?? [];
+  recordWorkspaceScopeSessionCount(context, rows.length);
   const selected = !options.all && options.limit > 0 ? rows.slice(0, options.limit) : rows;
   return structuredClone(selected);
 }
 
+/**
+ * Aggregation key for list --workspaces. This is the scope-matching normalizer
+ * (normalizeWorkspacePath) applied after home-directory expansion and trailing-separator
+ * trimming, so listing and --workspace resolution can never disagree about identity.
+ */
 function canonicalWorkspaceAggregationKey(workspacePath: string): string {
+  try {
+    return normalizeWorkspacePath(normalizePath(workspacePath));
+  } catch {
+    // Malformed file URIs / empty values cannot be scope-normalized; keep them distinct.
+    return legacyWorkspaceAggregationKey(workspacePath);
+  }
+}
+
+/** Pre-unification key, retained only as the fallback for values scope matching rejects. */
+function legacyWorkspaceAggregationKey(workspacePath: string): string {
   let normalized = normalizePath(workspacePath).replace(/\\/g, '/');
   if (/^\/[a-z]:\//i.test(normalized)) normalized = normalized.slice(1);
   const wsl = normalized.match(/^\/mnt\/([a-z])(?:\/(.*))?$/i);
@@ -6203,13 +6399,18 @@ async function loadMergedSession(
  * @param options - Search options (limit, contextChars, workspacePath)
  * @param customDataPath - Custom Cursor data path (for live data)
  * @param backupPath - Path to backup zip file (if reading from backup)
+ * @param readContext - Optional operation-scoped read context for caching
+ * @param hydratedSessions - Optional internal sink: receives the already-hydrated session for
+ *   every returned hit so callers need not hydrate it a second time. Only hits that survive
+ *   `options.limit` are retained, so memory stays bounded by the limit.
  */
 export async function searchSessions(
   query: string,
   options: SearchOptions,
   customDataPath?: string,
   backupPath?: string,
-  readContext?: SessionReadContext
+  readContext?: SessionReadContext,
+  hydratedSessions?: Map<SearchResult, ChatSession>
 ): Promise<SearchResult[]> {
   const ownsContext = readContext === undefined;
   const context =
@@ -6240,6 +6441,16 @@ export async function searchSessions(
       backupPath,
       context
     );
+    if (!context.onDiagnostic) {
+      // Strict mode refuses any ambiguous session. Fail before hydrating a single conversation
+      // instead of after minutes of work on the sessions that precede it in the catalog. With
+      // an onDiagnostic sink the loop below skips and reports each ambiguous session instead.
+      for (const summary of summaries) {
+        if (summary.resolutionState === 'ambiguous') {
+          reportSessionAmbiguity(context, summary.id, summary.diagnosticOccurrenceRefs);
+        }
+      }
+    }
     const results: SearchResult[] = [];
     for (const summary of summaries) {
       throwIfReadAborted(options.signal ?? context.signal);
@@ -6261,7 +6472,7 @@ export async function searchSessions(
         if (snippets.length > 0) {
           const matchCount = snippets.reduce((sum, s) => sum + s.matchPositions.length, 0);
 
-          results.push({
+          const hit: SearchResult = {
             sessionId: summary.id,
             index: summary.index,
             workspacePath: summary.workspacePath,
@@ -6270,7 +6481,17 @@ export async function searchSessions(
             createdAt: summary.createdAt,
             matchCount,
             snippets,
-          });
+          };
+          results.push(hit);
+          if (hydratedSessions) {
+            hydratedSessions.set(hit, session);
+            // The final result is a stable top-N by match count, so anything ranked below N
+            // now can never be returned; drop its session to keep retention bounded.
+            if (options.limit > 0 && results.length > options.limit) {
+              results.sort((a, b) => b.matchCount - a.matchCount);
+              for (const dropped of results.splice(options.limit)) hydratedSessions.delete(dropped);
+            }
+          }
         }
       } catch (error) {
         if (!(error instanceof SessionAmbiguityError)) throw error;

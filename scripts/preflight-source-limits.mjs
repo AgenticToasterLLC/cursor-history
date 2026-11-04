@@ -55,7 +55,7 @@ export const POLICY_ARTIFACT_SHA256 = Object.freeze({
     '744d42ecf7a0564af6b136e0655c5100c774c803c3a0057517bac03322316b3e',
   'specs/016-harden-session-integrity/tasks.md':
     '77187844535aeb11aa07c490fc050a9ad8adcfc1510a90ecebbdae347545084e',
-  'docs/compatibility.md': 'e495d70d2bc889ffa94ad1de70ddb0c5dd116b294ab2925d3694ae436a347db0',
+  'docs/compatibility.md': '4e7e60b6c49ec55a3c79ecf03582930cf1df36ca99d9cc183c665740c43adc9a',
 });
 
 const POLICY_FIELDS = Object.freeze([
