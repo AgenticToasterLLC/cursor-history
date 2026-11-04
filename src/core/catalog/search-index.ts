@@ -25,7 +25,7 @@ import { randomUUID } from 'node:crypto';
 import { mergeWithDefaults } from '../../lib/config.js';
 import type { CatalogInfo, LibraryConfig } from '../../lib/types.js';
 import * as storage from '../storage.js';
-import { SessionAmbiguityError } from '../errors.js';
+import { SessionAmbiguityError, SourceEncodingError } from '../errors.js';
 import type { CatalogMode, CatalogState, IndexerRequest } from './contract.js';
 import type { CatalogDeps, CatalogStore } from './catalog-deps.js';
 import {
@@ -122,7 +122,10 @@ export async function buildSearchIndex(
         );
         sessions += 1;
       } catch (error) {
-        if (!(error instanceof SessionAmbiguityError)) throw error;
+        // Ambiguous or undecodable sessions are skipped (never indexed), like the direct scan.
+        if (!(error instanceof SessionAmbiguityError || error instanceof SourceEncodingError)) {
+          throw error;
+        }
       } finally {
         context.releaseSession(summary.id);
       }

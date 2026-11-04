@@ -90,6 +90,7 @@ import {
 import {
   isSessionIntegrityError,
   SessionAmbiguityError,
+  SourceEncodingError,
   BackupWorkspaceScopeMetadataError,
   ReadContextDisposedError,
   ReadContextOptionsMismatchError,
@@ -3067,6 +3068,34 @@ function reportSessionAmbiguity(
     occurrenceCount: orderedRefs.length,
     occurrenceRefs: orderedRefs,
     remedy: 'Resolve or remove the divergent replicas, then retry the operation.',
+  });
+}
+
+/**
+ * Skip one session whose source text cannot be decoded (`SOURCE_ENCODING_INVALID`) during a
+ * cross-session scan, reporting a content-free diagnostic instead of aborting the scan.
+ * Mirrors ambiguity: without an `onDiagnostic` sink the error is rethrown unchanged (strict
+ * mode keeps its fail-fast behavior); single-session reads never reach this helper.
+ */
+export function skipUndecodableSession(
+  context: SessionReadContext,
+  sessionId: string,
+  error: unknown
+): void {
+  if (!(error instanceof SourceEncodingError) || !context.onDiagnostic) throw error;
+  const state = privateReadState(context);
+  const sourceKind = error.details.sourceKind as 'jsonl' | 'sqlite';
+  const key = JSON.stringify(['SOURCE_ENCODING_INVALID', sessionId, sourceKind, null, null]);
+  if (state.emittedDiagnosticKeys.has(key)) return;
+  state.emittedDiagnosticKeys.add(key);
+  context.onDiagnostic({
+    code: 'SOURCE_ENCODING_INVALID',
+    message: error.message,
+    sessionId,
+    sourceRole: 'store',
+    sourceKind,
+    outcome: 'partial',
+    remedy: error.details.remedy,
   });
 }
 
@@ -6871,8 +6900,12 @@ export async function searchSessions(
           }
         }
       } catch (error) {
-        if (!(error instanceof SessionAmbiguityError)) throw error;
-        reportSessionAmbiguity(context, error.details.sessionId, error.details.occurrenceRefs);
+        if (error instanceof SessionAmbiguityError) {
+          reportSessionAmbiguity(context, error.details.sessionId, error.details.occurrenceRefs);
+        } else {
+          // One undecodable transcript must not abort the search over every other session.
+          skipUndecodableSession(context, summary.id, error);
+        }
       } finally {
         context.releaseSession(summary.id);
       }
