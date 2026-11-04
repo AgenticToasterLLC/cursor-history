@@ -7,9 +7,11 @@ import pc from 'picocolors';
 import {
   createSessionReadContext,
   listSessionSummaries,
+  listWorkspaceInventory,
   listWorkspaces,
 } from '../../core/storage.js';
 import { validateBackup } from '../../core/backup.js';
+import { getWorkspaceScopeResolution } from '../../core/workspace-scope-state.js';
 import {
   formatSessionsTable,
   formatSessionsJson,
@@ -26,7 +28,12 @@ import {
   contractPath,
 } from '../../lib/platform.js';
 import { existsSync } from 'node:fs';
-import type { LogicalSessionSummary, SourceReadLimitsOverride } from '../../core/types.js';
+import type {
+  LogicalSessionSummary,
+  SourceReadLimitsOverride,
+  WorkspaceInventoryEntry,
+  WorkspaceScopeResolution,
+} from '../../core/types.js';
 import { validateCliSourceLimitOverrides } from '../source-limit-option.js';
 import { CliError, ExitCode, handleCommandError } from '../errors.js';
 import { createAmbiguousSessionDiagnostic, createCliDiagnosticCollector } from '../diagnostics.js';
@@ -36,6 +43,7 @@ interface ListCommandOptions {
   limit?: string;
   all?: boolean;
   workspaces?: boolean;
+  inventory?: boolean;
   ids?: boolean;
   json?: boolean;
   dataPath?: string;
@@ -54,6 +62,10 @@ export function registerListCommand(program: Command): void {
     .option('-n, --limit <number>', 'Maximum sessions to show', '20')
     .option('-a, --all', 'Show all sessions (ignore limit)')
     .option('--workspaces', 'List workspaces instead of sessions')
+    .option(
+      '--inventory',
+      'With --workspaces: fast metadata-only listing (paths, aliases, last modified); no session counts'
+    )
     .option('--ids', 'Show composer IDs (for external export tools)')
     .option('-b, --backup <path>', 'Read from backup file instead of live data')
     .action(async (options: ListCommandOptions, command: Command) => {
@@ -74,6 +86,13 @@ export function registerListCommand(program: Command): void {
         sourceReadLimits = validateCliSourceLimitOverrides(globalOptions?.sourceLimit);
       } catch (error) {
         handleCommandError(error, { json: useJson });
+      }
+
+      if (options.inventory && !options.workspaces) {
+        handleCommandError(
+          new CliError('`--inventory` requires `--workspaces`.', ExitCode.USAGE_ERROR),
+          { json: useJson }
+        );
       }
 
       if (options.workspaces && workspaceFilter) {
@@ -135,6 +154,23 @@ export function registerListCommand(program: Command): void {
             process.exit(ExitCode.NOT_FOUND);
           }
         }
+        if (options.inventory) {
+          const inventory = await listWorkspaceInventory(
+            customPath ? expandPath(customPath) : undefined,
+            backupPath,
+            { sourceReadLimits }
+          );
+          if (useJson) {
+            console.log(
+              JSON.stringify({ count: inventory.length, workspaces: inventory }, null, 2)
+            );
+          } else if (inventory.length === 0) {
+            console.log(formatNoHistory());
+          } else {
+            console.log(formatWorkspaceInventoryTable(inventory));
+          }
+          return;
+        }
         // List workspaces
         const workspaces = await listWorkspaces(
           customPath ? expandPath(customPath) : undefined,
@@ -176,6 +212,7 @@ export function registerListCommand(program: Command): void {
           onDiagnostic: diagnosticCollector.onDiagnostic,
         });
         let sessions: LogicalSessionSummary[];
+        let scope: WorkspaceScopeResolution = { state: 'unscoped' };
         try {
           try {
             sessions = await listSessionSummaries(
@@ -190,6 +227,7 @@ export function registerListCommand(program: Command): void {
               backupPath,
               context
             );
+            scope = getWorkspaceScopeResolution(context, sessions.length);
           } finally {
             await context.dispose();
           }
@@ -218,6 +256,7 @@ export function registerListCommand(program: Command): void {
             console.log(
               [
                 formatNoHistory(workspaceFilter),
+                formatWorkspaceScopeHint(scope),
                 formatOperationDiagnostics(diagnosticCollector.diagnostics),
               ]
                 .filter(Boolean)
@@ -257,4 +296,31 @@ export function registerListCommand(program: Command): void {
         }
       }
     });
+}
+
+function formatWorkspaceInventoryTable(inventory: readonly WorkspaceInventoryEntry[]): string {
+  const lines = [pc.bold(`${'Last modified'.padEnd(26)} ${'Sources'.padEnd(15)} Path`)];
+  lines.push(pc.dim('─'.repeat(80)));
+  for (const entry of inventory) {
+    lines.push(
+      `${(entry.lastModifiedAt ?? 'unknown').padEnd(26)} ${entry.sources.join(',').padEnd(15)} ${entry.path}`
+    );
+  }
+  lines.push('');
+  lines.push(pc.dim(`Found ${inventory.length} known workspace path(s).`));
+  return lines.join('\n');
+}
+
+/** Actionable hint for an unknown workspace; empty for any other scope outcome. */
+function formatWorkspaceScopeHint(scope: WorkspaceScopeResolution): string {
+  if (scope.state !== 'not-found') return '';
+  const lines = [pc.yellow(`Workspace not found in local history: ${scope.normalizedRequest}`)];
+  if (scope.suggestions.length > 0) {
+    lines.push('Did you mean:');
+    for (const suggestion of scope.suggestions) {
+      lines.push(`  ${suggestion.path}  ${pc.dim(`(${suggestion.reason})`)}`);
+    }
+  }
+  lines.push(pc.dim('Run `cursor-history list --workspaces --inventory` to see known paths.'));
+  return lines.join('\n');
 }

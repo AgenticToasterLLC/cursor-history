@@ -133,7 +133,8 @@ Matching is deterministic:
 2. If no exact match exists, exactly one candidate whose complete trailing path components match
    is accepted as `unique-suffix`.
 3. Multiple suffix candidates fail with `WORKSPACE_AMBIGUOUS` before conversation payload I/O.
-4. No candidate returns an actionable empty result.
+4. No candidate returns an actionable empty result with `scope.state: "not-found"` and suggestions
+   (see below).
 
 By default, a workspace is both a logical membership filter and a conversation-payload I/O
 boundary. Lightweight global metadata may be read to discover UUIDs and memberships, but message
@@ -163,6 +164,44 @@ attribution. `matchedWorkspacePath` reports the full membership selected by the 
 `workspaceMemberships` and `sourceInstances` report normalized, deterministically ordered
 memberships and source roles without exposing raw locators. A pathless core/CLI value is `null`; the
 public-library compatibility alias is exactly `"unknown"`.
+
+### Workspace scope outcome, `listWorkspaces`, and fast not-found
+
+Workspace-scoped library reads (`listSessions`, `listSessionSummaries`, and the array returned by
+`searchSessions`) carry an additive `scope` describing how the request resolved. It is omitted for
+unscoped reads, so existing unscoped results are unchanged. For `searchSessions` the result stays a
+plain array and `scope` is a non-enumerable property, so iteration, `JSON.stringify`, and equality
+are unaffected.
+
+| `scope.state` | Meaning |
+| --- | --- |
+| `matched` | The request resolved (`matchKind` is `exact` or `unique-suffix`, `path` is the full normalized path). |
+| `empty` | The request resolved but the workspace has zero sessions. Not an error. |
+| `not-found` | No known workspace matches. Carries `normalizedRequest` and up to five `suggestions`, best first. |
+
+Suggestions come from the same metadata-only inventory, never from conversation payload, and are
+ordered by reason: `case-or-separator-variant`, `shared-trailing-components` (more shared whole
+components first), `same-basename`, `substring`, then by path in code-point order. Ambiguity is
+unchanged: several unique-suffix candidates still throw `WORKSPACE_AMBIGUOUS`.
+
+`listWorkspaces({ dataPath?, backupPath?, query?, limit?, offset?, signal?, diagnostics? })` lists
+known workspaces without opening any conversation or state database. It reads only
+`workspace.json` files, Store `meta.json` sidecars, and `fs.stat` timestamps. Each entry reports the
+normalized `path` (same rules as scope matching), the raw `aliases` observed, the storage
+`sources` (`composer`, `store`), the opaque Composer `workspaceStorageIds`, and `lastModifiedAt`
+when known. Entries are ordered by `lastModifiedAt` descending (unknown last), then by path in
+code-point order. `limit` defaults to 50 (maximum 1000). A backup exposes only its Composer manifest
+inventory (no Store data and no timestamps). The CLI equivalent is
+`cursor-history list --workspaces --inventory`; plain `list --workspaces` still reports session
+counts and is unchanged.
+
+Fast not-found guarantee: before Store payload discovery, any database open, or any global scan, a
+scoped read resolves the request against that cheap inventory. The inventory is a provable superset
+of the paths full resolution can match (full resolution only ever drops Store paths during
+verification), so a request that matches nothing in the inventory returns an empty page with
+`scope.state: "not-found"` having performed no `state.vscdb`, `store.db`, transcript, or global
+reads. When the inventory does match or is ambiguous, or any spelling cannot be normalized, the full
+resolution decides, exactly as before.
 
 ## Fidelity, provenance, and replacement safety
 

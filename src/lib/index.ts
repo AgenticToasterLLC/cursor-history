@@ -12,7 +12,12 @@ export type {
   Message,
   ToolCall,
   SearchResult,
+  SearchResultList,
   LibraryConfig,
+  ListWorkspacesConfig,
+  WorkspaceInventoryEntry,
+  WorkspaceScopeResolution,
+  WorkspaceSuggestion,
   PaginatedResult,
   MigrationMode,
   MigrateSessionConfig,
@@ -196,6 +201,9 @@ import type {
   PaginatedResult,
   Session,
   SearchResult,
+  SearchResultList,
+  ListWorkspacesConfig,
+  WorkspaceInventoryEntry,
   MigrateSessionConfig,
   MigrateWorkspaceConfig,
   SessionMigrationResult,
@@ -209,8 +217,9 @@ import type {
   ResolvedSource,
   SessionResolution,
   SessionSourceInstance,
+  WorkspaceScopeResolution,
 } from './types.js';
-import { mergeWithDefaults, type ResolvedConfig } from './config.js';
+import { mergeWithDefaults, resolveListWorkspacesConfig, type ResolvedConfig } from './config.js';
 import {
   DatabaseLockedError,
   DatabaseNotFoundError,
@@ -239,11 +248,17 @@ import {
   findCaseInsensitiveMatchPositions,
 } from '../core/parser.js';
 import { expandPath, pathsEqual } from './platform.js';
-import { normalizePublicWorkspacePath, normalizeWorkspacePath } from '../core/workspace-scope.js';
+import {
+  inventoryEntryMatchesQuery,
+  normalizePublicWorkspacePath,
+  normalizeWorkspacePath,
+} from '../core/workspace-scope.js';
 import { sessionIdsEqual } from '../core/session-id.js';
+import { getWorkspaceScopeResolution } from '../core/workspace-scope-state.js';
 import type {
   AmbiguousSessionSummary as CoreAmbiguousSessionSummary,
   ChatSession as CoreSession,
+  SearchResult as CoreSearchResult,
   LogicalSessionSummary as CoreLogicalSessionSummary,
 } from '../core/types.js';
 import {
@@ -878,6 +893,18 @@ function reportAmbiguousSummary(
 }
 
 /**
+ * Scope outcome for a workspace-scoped read; undefined (field omitted) for unscoped reads so
+ * existing unscoped results stay byte-identical.
+ */
+function workspaceScopeFor(
+  bound: ConfiguredReadContext,
+  sessionCount?: number
+): WorkspaceScopeResolution | undefined {
+  const scope = getWorkspaceScopeResolution(bound.context, sessionCount);
+  return scope.state === 'unscoped' ? undefined : scope;
+}
+
+/**
  * List one message-free row for every logical session in the requested catalog window.
  *
  * @param config - Optional immutable data source, workspace, and pagination configuration.
@@ -907,6 +934,7 @@ export async function listSessionSummaries(
     const total = rows.length;
     const start = resolved.offset;
     const end = Math.min(start + resolved.limit, total);
+    const scope = workspaceScopeFor(bound, total);
     return {
       data: rows.slice(start, end).map(convertToLibrarySummary),
       pagination: {
@@ -915,9 +943,64 @@ export async function listSessionSummaries(
         offset: resolved.offset,
         hasMore: end < total,
       },
+      ...(scope ? { scope } : {}),
     };
   } finally {
     if (bound.ownsContext) await bound.context.dispose();
+  }
+}
+
+/**
+ * List workspaces known to local Cursor history without opening any conversation database.
+ *
+ * Discovery reads only `workspace.json` files, Store `meta.json` sidecars and file
+ * timestamps, so it stays fast on very large histories. Use it to find the exact historical
+ * spelling of a path before passing it as `workspace` to a read, or to inspect the
+ * suggestions behind a `not-found` scope. Entries are ordered newest first (unknown last),
+ * then by path in code-point order. Backups expose their Composer manifest inventory only.
+ *
+ * @param config - Optional data source, query filter, and pagination configuration.
+ * @returns A page of normalized workspace paths with their raw aliases and sources.
+ * @throws {InvalidConfigError} If a configuration field is invalid.
+ * @throws {DatabaseNotFoundError} If the configured backup or data source cannot be read.
+ *
+ * @example
+ * const { data } = await listWorkspaces({ query: 'graphql', limit: 10 });
+ * console.log(data.map((entry) => entry.path));
+ */
+export async function listWorkspaces(
+  config?: ListWorkspacesConfig
+): Promise<PaginatedResult<WorkspaceInventoryEntry>> {
+  const resolved = resolveListWorkspacesConfig(config);
+  try {
+    const all = await storage.listWorkspaceInventory(resolved.dataPath, resolved.backupPath, {
+      signal: resolved.signal,
+      diagnostics: resolved.diagnostics,
+    });
+    const matching =
+      resolved.query.length > 0
+        ? all.filter((entry) => inventoryEntryMatchesQuery(entry, resolved.query))
+        : all;
+    const total = matching.length;
+    const end = Math.min(resolved.offset + resolved.limit, total);
+    return {
+      data: matching.slice(resolved.offset, end),
+      pagination: {
+        total,
+        limit: resolved.limit,
+        offset: resolved.offset,
+        hasMore: end < total,
+      },
+    };
+  } catch (err) {
+    if (isReadPassThroughError(err)) throw err;
+    if (
+      err instanceof Error &&
+      (err.message.includes('ENOENT') || err.message.includes('no such file'))
+    ) {
+      throw new DatabaseNotFoundError(resolved.dataPath ?? 'default path');
+    }
+    throw err;
   }
 }
 
@@ -996,6 +1079,7 @@ export async function listSessions(config?: LibraryConfig): Promise<PaginatedRes
         }
       }
 
+      const scope = workspaceScopeFor(bound, total);
       return {
         data: sessions,
         pagination: {
@@ -1004,6 +1088,7 @@ export async function listSessions(config?: LibraryConfig): Promise<PaginatedRes
           offset: resolved.offset,
           hasMore: end < total,
         },
+        ...(scope ? { scope } : {}),
       };
     } finally {
       if (bound.ownsContext) await bound.context.dispose();
@@ -1142,11 +1227,14 @@ export async function getSession(index: number | string, config?: LibraryConfig)
 export async function searchSessions(
   query: string,
   config?: LibraryConfig
-): Promise<SearchResult[]> {
+): Promise<SearchResultList> {
   try {
     const resolved = mergeWithDefaults(config);
     const bound = bindConfiguredReadContext(config, 0);
     try {
+      // Core already hydrated every hit to find its snippets; carry that session through rather
+      // than hydrating it a second time.
+      const hydrated = new Map<CoreSearchResult, CoreSession>();
       const coreResults = await storage.searchSessions(
         query,
         {
@@ -1157,18 +1245,23 @@ export async function searchSessions(
         },
         bound.dataPath,
         bound.backupPath,
-        bound.context
+        bound.context,
+        hydrated
       );
       const results: SearchResult[] = [];
       for (const coreResult of coreResults) {
         try {
-          const fullSession = await storage.getSession(
-            coreResult.sessionId,
-            bound.dataPath,
-            bound.backupPath,
-            bound.context,
-            coreResult.index
-          );
+          // Core hands back the session it already hydrated; fall back to a read only for a
+          // core that did not (e.g. a substituted storage layer).
+          const fullSession =
+            hydrated.get(coreResult) ??
+            (await storage.getSession(
+              coreResult.sessionId,
+              bound.dataPath,
+              bound.backupPath,
+              bound.context,
+              coreResult.index
+            ));
           if (!fullSession) {
             throw new DatabaseNotFoundError(`Session ${coreResult.index} not found`);
           }
@@ -1218,7 +1311,16 @@ export async function searchSessions(
           bound.context.releaseSession(coreResult.sessionId);
         }
       }
-      return results;
+      const scope = workspaceScopeFor(bound);
+      if (scope) {
+        Object.defineProperty(results, 'scope', {
+          value: scope,
+          enumerable: false,
+          configurable: true,
+          writable: false,
+        });
+      }
+      return results as SearchResultList;
     } finally {
       if (bound.ownsContext) await bound.context.dispose();
     }

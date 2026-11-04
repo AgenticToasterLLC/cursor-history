@@ -1821,3 +1821,72 @@ function resolveStoreSessionTimestamps(session: StoreSession): void {
   session.lastUpdatedAt = projection.lastUpdatedAt;
   session.lastUpdatedAtSource = projection.lastUpdatedAtSource;
 }
+
+/** One Store metadata `cwd` observation made without opening any conversation payload. */
+export interface StoreWorkspaceCwdObservation {
+  /** Raw `cwd` value exactly as recorded in `meta.json`. */
+  cwd: string;
+  /** Newest mtime of the session's `meta.json` / `store.db` (fs.stat only), if known. */
+  modifiedMs?: number;
+}
+
+function statMtimeMs(path: string): number | undefined {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Enumerate every `cwd` recorded in Store `meta.json` sidecars (`chats/<hash>/<uuid>/`,
+ * compact `chats/<uuid>/`, and `acp-sessions/<uuid>/`).
+ *
+ * This reads only the small metadata sidecars. It never opens `store.db`, transcripts,
+ * or sidecar payloads, and it applies no `hasConversation` filtering: the result is a
+ * superset of the workspace paths the full metadata discovery can verify, which is what
+ * the fast workspace-scope preflight relies on.
+ */
+export function discoverStoreWorkspaceCwds(
+  storeRoot: string,
+  options: { signal?: AbortSignal; io?: OperationIoContext } = {}
+): StoreWorkspaceCwdObservation[] {
+  const { signal, io } = options;
+  throwIfAborted(signal);
+  const observations: StoreWorkspaceCwdObservation[] = [];
+
+  const observe = (sessionDir: string, uuid: string): void => {
+    throwIfAborted(signal);
+    const metaPath = join(sessionDir, 'meta.json');
+    const metaRead = readMeta(metaPath, signal, io, uuid, false);
+    const cwd = metaRead.meta?.cwd;
+    if (typeof cwd !== 'string' || cwd.length === 0) return;
+    const times = [statMtimeMs(metaPath), statMtimeMs(join(sessionDir, 'store.db'))].filter(
+      (value): value is number => value !== undefined
+    );
+    observations.push({
+      cwd,
+      ...(times.length > 0 ? { modifiedMs: Math.max(...times) } : {}),
+    });
+  };
+
+  const chats = chatsDir(storeRoot);
+  if (pathExists(chats, signal, io, 'store-root-directory')) {
+    for (const hash of listDirs(chats, signal, io).entries) {
+      const hashDir = join(chats, hash);
+      const directUuid = uuidFromCompactDirectoryName(hash);
+      if (directUuid) observe(hashDir, directUuid);
+      for (const uuid of listDirs(hashDir, signal, io).entries) {
+        observe(join(hashDir, uuid), uuid);
+      }
+    }
+  }
+
+  const acp = acpSessionsDir(storeRoot);
+  if (pathExists(acp, signal, io, 'store-root-directory')) {
+    for (const uuid of listDirs(acp, signal, io).entries) {
+      observe(join(acp, uuid), uuid);
+    }
+  }
+  return observations;
+}

@@ -21,9 +21,13 @@ import type {
   ToolIdentityOrigin,
   WorkspaceMatchKind,
   WorkspaceMembership,
+  WorkspaceScopeResolution,
 } from '../core/types.js';
 
 export type {
+  WorkspaceInventoryEntry,
+  WorkspaceScopeResolution,
+  WorkspaceSuggestion,
   GeneralSessionDiagnostic,
   GeneralSessionDiagnosticCode,
   IndexScope,
@@ -578,6 +582,39 @@ export interface PaginatedResult<T> {
 
   /** Content-free continuation diagnostics associated with omitted logical rows. */
   diagnostics?: SessionDiagnostic[];
+
+  /**
+   * How the requested workspace resolved against local history. Present on session
+   * listings (and on the array returned by `searchSessions`) so an empty page can be
+   * told apart from an unknown workspace. Purely additive; absent on unrelated lists.
+   */
+  scope?: WorkspaceScopeResolution;
+}
+
+/**
+ * Search results plus the additive workspace scope outcome.
+ *
+ * Still an ordinary array. `scope` is a non-enumerable property, so iteration,
+ * serialization and equality are unchanged.
+ */
+export type SearchResultList = SearchResult[] & { readonly scope?: WorkspaceScopeResolution };
+
+/** Configuration for {@link listWorkspaces}: metadata-only workspace discovery. */
+export interface ListWorkspacesConfig {
+  /** Custom Cursor data path (optional, defaults to the platform path; also locates the Store root). */
+  dataPath?: string;
+  /** Read the workspace inventory from a cursor-history backup archive (Composer workspaces only). */
+  backupPath?: string;
+  /** Cooperatively cancel the operation. */
+  signal?: AbortSignal;
+  /** Receive content-free performance diagnostics (see `LibraryConfig.diagnostics`). */
+  diagnostics?: import('../core/diagnostics.js').DiagnosticsSink;
+  /** Case-insensitive substring filter matched against the normalized path and every alias. */
+  query?: string;
+  /** Maximum entries per page (optional, default 50, maximum 1000). */
+  limit?: number;
+  /** Zero-based offset of the first entry (optional, default 0). */
+  offset?: number;
 }
 
 // ============================================================================

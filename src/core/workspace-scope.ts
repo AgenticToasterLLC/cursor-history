@@ -7,7 +7,7 @@
  */
 
 import { WorkspaceAmbiguityError } from './errors.js';
-import type { WorkspaceMatchKind } from './types.js';
+import type { WorkspaceInventoryEntry, WorkspaceMatchKind, WorkspaceSuggestion } from './types.js';
 
 export { WorkspaceAmbiguityError } from './errors.js';
 export type { WorkspaceMatchKind } from './types.js';
@@ -280,4 +280,206 @@ export function resolveWorkspaceScope(
   }
 
   return { kind: 'not-found', normalizedRequest: normalizedRequest.path };
+}
+
+const SUGGESTION_REASON_RANK: Record<WorkspaceSuggestion['reason'], number> = {
+  'case-or-separator-variant': 0,
+  'shared-trailing-components': 1,
+  'same-basename': 2,
+  substring: 3,
+};
+
+/** Case-fold and drop every separator-like character so spelling variants compare equal. */
+function looseKey(value: string): string {
+  return value.toLowerCase().replace(/[\s/\\._-]+/gu, '');
+}
+
+function roundScore(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function lastComponent(path: NormalizedWorkspacePath): string {
+  return path.components[path.components.length - 1]?.toLowerCase() ?? '';
+}
+
+/** Count whole trailing path components shared by two normalized paths (case-insensitive). */
+function sharedTrailingComponents(
+  left: NormalizedWorkspacePath,
+  right: NormalizedWorkspacePath
+): number {
+  let shared = 0;
+  while (
+    shared < left.components.length &&
+    shared < right.components.length &&
+    left.components[left.components.length - 1 - shared]!.toLowerCase() ===
+      right.components[right.components.length - 1 - shared]!.toLowerCase()
+  ) {
+    shared += 1;
+  }
+  return shared;
+}
+
+/**
+ * Suggest known workspace paths that resemble an unmatched request.
+ *
+ * Purely lexical: no filesystem access. Ranking is deterministic: spelling variants
+ * first, then paths sharing two or more whole trailing components (more shared first),
+ * then paths with the same final component, then substring containment. Ties break by
+ * code-point path order. At most `max` suggestions are returned.
+ */
+export function suggestWorkspacePaths(
+  request: string,
+  knownPaths: readonly string[],
+  max = 5
+): WorkspaceSuggestion[] {
+  const normalizedRequest = normalizeWorkspacePathDetails(request);
+  const requestLoose = looseKey(normalizedRequest.path);
+  const requestBase = lastComponent(normalizedRequest);
+  const requestBaseLoose = looseKey(requestBase);
+  const requestText = normalizedRequest.path.toLowerCase();
+  const seen = new Set<string>();
+  const ranked: Array<WorkspaceSuggestion & { shared: number }> = [];
+
+  for (const known of knownPaths) {
+    let candidate: NormalizedWorkspacePath;
+    try {
+      candidate = normalizeWorkspacePathDetails(known);
+    } catch {
+      continue;
+    }
+    if (seen.has(candidate.path)) continue;
+    seen.add(candidate.path);
+    if (candidate.path === normalizedRequest.path) continue;
+
+    const candidateText = candidate.path.toLowerCase();
+    const shared = sharedTrailingComponents(normalizedRequest, candidate);
+    const candidateBaseLoose = looseKey(lastComponent(candidate));
+    let suggestion: (WorkspaceSuggestion & { shared: number }) | undefined;
+
+    if (requestLoose.length > 0 && looseKey(candidate.path) === requestLoose) {
+      suggestion = {
+        path: candidate.path,
+        reason: 'case-or-separator-variant',
+        score: 1,
+        shared,
+      };
+    } else if (shared >= 2) {
+      suggestion = {
+        path: candidate.path,
+        reason: 'shared-trailing-components',
+        score: roundScore(0.5 + 0.4 * (shared / (shared + 1))),
+        shared,
+      };
+    } else if (
+      requestBaseLoose.length > 0 &&
+      (shared === 1 || requestBaseLoose === candidateBaseLoose)
+    ) {
+      suggestion = { path: candidate.path, reason: 'same-basename', score: 0.4, shared };
+    } else if (
+      (requestText.length >= 3 && candidateText.includes(requestText)) ||
+      (candidateText.length >= 3 && requestText.includes(candidateText)) ||
+      (requestBaseLoose.length >= 3 &&
+        candidateBaseLoose.length >= 3 &&
+        (candidateBaseLoose.includes(requestBaseLoose) ||
+          requestBaseLoose.includes(candidateBaseLoose)))
+    ) {
+      suggestion = { path: candidate.path, reason: 'substring', score: 0.2, shared };
+    }
+    if (suggestion) ranked.push(suggestion);
+  }
+
+  ranked.sort(
+    (left, right) =>
+      SUGGESTION_REASON_RANK[left.reason] - SUGGESTION_REASON_RANK[right.reason] ||
+      right.shared - left.shared ||
+      compareCodePoints(left.path, right.path)
+  );
+  return ranked.slice(0, Math.max(0, max)).map(({ path, reason, score }) => ({
+    path,
+    reason,
+    score,
+  }));
+}
+
+/** Order inventory entries newest first (unknown last), then by path in code-point order. */
+export function compareWorkspaceInventoryEntries(
+  left: Pick<WorkspaceInventoryEntry, 'path' | 'lastModifiedAt'>,
+  right: Pick<WorkspaceInventoryEntry, 'path' | 'lastModifiedAt'>
+): number {
+  if (left.lastModifiedAt !== right.lastModifiedAt) {
+    if (left.lastModifiedAt === undefined) return 1;
+    if (right.lastModifiedAt === undefined) return -1;
+    return left.lastModifiedAt < right.lastModifiedAt ? 1 : -1;
+  }
+  return compareCodePoints(left.path, right.path);
+}
+
+/** Case-insensitive substring filter over the normalized path and every alias. */
+export function inventoryEntryMatchesQuery(entry: WorkspaceInventoryEntry, query: string): boolean {
+  const needle = query.toLowerCase();
+  if (needle.length === 0) return true;
+  return [entry.path, ...entry.aliases].some((value) => value.toLowerCase().includes(needle));
+}
+
+/**
+ * Merge raw workspace spellings into one entry per normalized path.
+ *
+ * Display-only labels are skipped. Spellings that cannot be normalized (malformed
+ * file URIs) are reported through `unnormalizable` rather than silently dropped, so a
+ * caller that needs a provable superset can decline to rely on the inventory.
+ */
+export function buildWorkspaceInventory(
+  observations: ReadonlyArray<{
+    raw: string;
+    source: 'composer' | 'store';
+    workspaceStorageId?: string;
+    modifiedMs?: number;
+  }>
+): { entries: WorkspaceInventoryEntry[]; unnormalizable: boolean } {
+  const byPath = new Map<
+    string,
+    {
+      aliases: Set<string>;
+      sources: Set<'composer' | 'store'>;
+      ids: Set<string>;
+      modifiedMs?: number;
+    }
+  >();
+  let unnormalizable = false;
+  for (const observation of observations) {
+    if (isInternalWorkspaceLabel(observation.raw)) continue;
+    const path = normalizePublicWorkspacePath(observation.raw);
+    if (path === undefined) {
+      unnormalizable = true;
+      continue;
+    }
+    let bucket = byPath.get(path);
+    if (!bucket) {
+      bucket = { aliases: new Set(), sources: new Set(), ids: new Set() };
+      byPath.set(path, bucket);
+    }
+    bucket.aliases.add(observation.raw);
+    bucket.sources.add(observation.source);
+    if (observation.workspaceStorageId !== undefined) {
+      bucket.ids.add(observation.workspaceStorageId);
+    }
+    if (
+      observation.modifiedMs !== undefined &&
+      Number.isFinite(observation.modifiedMs) &&
+      (bucket.modifiedMs === undefined || observation.modifiedMs > bucket.modifiedMs)
+    ) {
+      bucket.modifiedMs = observation.modifiedMs;
+    }
+  }
+  const entries: WorkspaceInventoryEntry[] = [...byPath.entries()].map(([path, bucket]) => ({
+    path,
+    aliases: [...bucket.aliases].sort(compareCodePoints),
+    sources: (['composer', 'store'] as const).filter((source) => bucket.sources.has(source)),
+    workspaceStorageIds: [...bucket.ids].sort(compareCodePoints),
+    ...(bucket.modifiedMs === undefined
+      ? {}
+      : { lastModifiedAt: new Date(bucket.modifiedMs).toISOString() }),
+  }));
+  entries.sort(compareWorkspaceInventoryEntries);
+  return { entries, unnormalizable };
 }
