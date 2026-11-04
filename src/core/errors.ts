@@ -18,7 +18,9 @@ export type SessionIntegrityErrorCode =
   | 'READ_CONTEXT_DISPOSED'
   | 'SOURCE_ENCODING_INVALID'
   | 'SOURCE_LIMIT_EXCEEDED'
-  | 'SOURCE_LIMIT_CONFIGURATION_INVALID';
+  | 'SOURCE_LIMIT_CONFIGURATION_INVALID'
+  | 'PROTECTED_PATH'
+  | 'CURSOR_RUNNING';
 
 /** JSON-safe primitive values accepted in public error details. */
 export type SafeErrorDetailValue = string | number | boolean | null | string[] | number[];
