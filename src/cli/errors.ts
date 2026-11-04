@@ -130,7 +130,8 @@ export function formatFatalJson(error: unknown): string {
 export function mapSessionIntegrityError(error: SessionIntegrityError): CliError {
   const exitCode =
     error.code === 'SOURCE_LIMIT_CONFIGURATION_INVALID' ||
-    error.code === 'READ_CONTEXT_OPTIONS_MISMATCH'
+    error.code === 'READ_CONTEXT_OPTIONS_MISMATCH' ||
+    error.code === 'PROTECTED_PATH'
       ? ExitCode.USAGE_ERROR
       : error.code === 'SOURCE_ENCODING_INVALID' ||
           error.code === 'SOURCE_LIMIT_EXCEEDED' ||
@@ -246,6 +247,16 @@ export class FileExistsError extends CliError {
   constructor(path: string) {
     super(`File already exists: ${path}\nUse --force to overwrite.`, ExitCode.IO_ERROR);
     this.name = 'FileExistsError';
+  }
+}
+
+/**
+ * Error for an overwrite that needs explicit confirmation but did not get it.
+ */
+export class OverwriteNotConfirmedError extends CliError {
+  constructor(message: string) {
+    super(message, ExitCode.USAGE_ERROR, 'OVERWRITE_NOT_CONFIRMED');
+    this.name = 'OverwriteNotConfirmedError';
   }
 }
 

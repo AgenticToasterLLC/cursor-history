@@ -401,9 +401,24 @@ cursor-history export 1 --format json
 # Export all sessions to directory
 cursor-history export --all -o ./exports/
 
-# Overwrite existing files
+# Replace an existing file (prompts; see "Output-path safety" below)
 cursor-history export 1 --force
 ```
+
+#### Output-path safety
+
+`export`, `export-training` and `backup` refuse to write into Cursor's own data: the workspace and global storage directories, the agent Store directory, any path that reaches them through a symlink or junction, and any file named like a Cursor database (`state.vscdb`, `*.vscdb`, `-wal`/`-shm`, `store.db`). The refusal (`PROTECTED_PATH`, exit code 2) applies even with `--force` and `--yes`. In the library, catch it with `isProtectedPathError`.
+
+Replacing an existing file is never silent. `--force` only allows an existing target; it then prints this to stderr:
+
+```text
+WARNING: <path> already exists (<size>) and will be TRUNCATED and overwritten. This cannot be undone.
+```
+
+- In an interactive terminal you must type `overwrite` at the `Type "overwrite" to continue:` prompt; any other input aborts with nothing changed.
+- Without a terminal, or with `--json`, add `--yes` (`--force --yes`); otherwise the command exits with code 2 (`OVERWRITE_NOT_CONFIRMED`).
+- `export --all -o <dir>` asks once for the whole run.
+- Single-file exports are written to a temporary sibling file and renamed over the target, so an interrupted export cannot leave a half-written file.
 
 ### Export a fine-tuning dataset
 

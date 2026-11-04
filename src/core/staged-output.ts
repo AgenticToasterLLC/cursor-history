@@ -20,6 +20,7 @@ import {
 import { basename, dirname, join, resolve } from 'node:path';
 import { once } from 'node:events';
 import { finished } from 'node:stream/promises';
+import { assertSafeOutputPath } from './write-guard.js';
 
 interface OutputEntry {
   target: string;
@@ -49,11 +50,18 @@ export class StagedOutputs {
   private readonly entries = new Map<string, OutputEntry>();
   private closed = false;
 
-  private constructor(private readonly force: boolean) {}
+  private constructor(
+    private readonly force: boolean,
+    private readonly customDataPath?: string
+  ) {}
 
   /** Prepare private sibling files; all targets must be distinct regular-file paths. */
-  static async create(targets: readonly string[], force = false): Promise<StagedOutputs> {
-    const outputs = new StagedOutputs(force);
+  static async create(
+    targets: readonly string[],
+    force = false,
+    customDataPath?: string
+  ): Promise<StagedOutputs> {
+    const outputs = new StagedOutputs(force, customDataPath);
     try {
       outputs.prepare(targets);
       return outputs;
@@ -65,6 +73,9 @@ export class StagedOutputs {
 
   private prepare(targets: readonly string[]): void {
     const canonical = new Set<string>();
+    // Refuse every protected target before any directory or stage file is created.
+    for (const path of targets)
+      assertSafeOutputPath(resolve(path), 'training-output', this.customDataPath);
     for (const path of targets) {
       const target = resolve(path);
       const existing = statIfPresent(target);

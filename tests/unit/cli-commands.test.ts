@@ -116,6 +116,18 @@ vi.mock('node:fs', async () => {
   };
 });
 
+// The atomic temp-file write is covered by output-path-safety tests; here it delegates to the
+// mocked writeFileSync so command wiring stays observable, and confirmation is recorded.
+const mockConfirmOverwrite = vi.fn(async () => undefined);
+vi.mock('../../src/cli/overwrite-confirmation.js', async () => {
+  const fs = await import('node:fs');
+  return {
+    confirmOverwrite: (...args: unknown[]) =>
+      (mockConfirmOverwrite as (...a: unknown[]) => Promise<void>)(...args),
+    writeFileAtomic: (path: string, content: string) => fs.writeFileSync(path, content, 'utf-8'),
+  };
+});
+
 // Mock migrate module
 const mockMigrateWorkspace = vi.fn();
 const mockMigrateSessions = vi.fn();
@@ -1088,6 +1100,10 @@ describe('export command', () => {
     registerExportCommand(program);
     await program.parseAsync(['node', 'test', 'export', '1', '-o', '/tmp/out.md', '--force']);
 
+    expect(mockConfirmOverwrite).toHaveBeenCalledWith(
+      '/tmp/out.md',
+      expect.objectContaining({ json: false })
+    );
     expect(vi.mocked(writeFileSync)).toHaveBeenCalled();
   });
 

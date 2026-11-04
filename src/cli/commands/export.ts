@@ -4,9 +4,11 @@
 
 import type { Command } from 'commander';
 import pc from 'picocolors';
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { getSession, listSessionSummaries, createSessionReadContext } from '../../core/storage.js';
+import { assertSafeOutputPath } from '../../core/write-guard.js';
+import { confirmOverwrite, writeFileAtomic } from '../overwrite-confirmation.js';
 import { validateBackup } from '../../core/backup.js';
 import { exportToMarkdown, exportToJson } from '../../core/parser.js';
 import {
@@ -32,6 +34,7 @@ interface ExportCommandOptions {
   output?: string;
   format?: string;
   force?: boolean;
+  yes?: boolean;
   all?: boolean;
   json?: boolean;
   dataPath?: string;
@@ -47,7 +50,11 @@ export function registerExportCommand(program: Command): void {
     .description('Export chat session(s) to file (index or composer ID)')
     .option('-o, --output <path>', 'Output file or directory')
     .option('-f, --format <format>', 'Output format: md or json', 'md')
-    .option('--force', 'Overwrite existing files')
+    .option('--force', 'Allow overwriting existing files (still asks for confirmation)')
+    .option(
+      '--yes',
+      'Confirm overwriting existing files without a prompt (required with --force when non-interactive or --json)'
+    )
     .option('-a, --all', 'Export all sessions')
     .option('-b, --backup <path>', 'Export from backup file instead of live data')
     .action(
@@ -151,10 +158,13 @@ export function registerExportCommand(program: Command): void {
               // Determine output directory
               const outputDir = options.output ? expandPath(options.output) : process.cwd();
 
+              assertSafeOutputPath(outputDir, 'export-output', expanded);
+
               // Create directory if needed
               if (!existsSync(outputDir)) {
                 mkdirSync(outputDir, { recursive: true });
               }
+              let overwriteConfirmed = false;
 
               // Show backup source indicator if exporting from backup
               if (backupPath && !useJson) {
@@ -182,15 +192,22 @@ export function registerExportCommand(program: Command): void {
                   const filePath = join(outputDir, filename);
 
                   // Check if file exists
-                  if (existsSync(filePath) && !options.force) {
-                    throw new FileExistsError(filePath);
+                  assertSafeOutputPath(filePath, 'export-output', expanded);
+                  if (existsSync(filePath)) {
+                    if (!options.force) throw new FileExistsError(filePath);
+                    // One confirmation covers every file replaced by this export.
+                    await confirmOverwrite(filePath, {
+                      yes: options.yes || overwriteConfirmed,
+                      json: useJson,
+                    });
+                    overwriteConfirmed = true;
                   }
 
                   // Export
                   const content =
                     format === 'json' ? exportToJson(session) : exportToMarkdown(session);
 
-                  writeFileSync(filePath, content, 'utf-8');
+                  writeFileAtomic(filePath, content);
                   const indexScope =
                     session.indexScope ?? (workspaceFilter ? 'workspace' : 'global');
                   const indexWorkspacePath =
@@ -258,9 +275,12 @@ export function registerExportCommand(program: Command): void {
               outputPath = `${dateStr}-${session.index}-${safeTitle}.${format}`;
             }
 
+            assertSafeOutputPath(outputPath, 'export-output', expanded);
+
             // Check if file exists
-            if (existsSync(outputPath) && !options.force) {
-              throw new FileExistsError(outputPath);
+            if (existsSync(outputPath)) {
+              if (!options.force) throw new FileExistsError(outputPath);
+              await confirmOverwrite(outputPath, { yes: options.yes, json: useJson });
             }
 
             // Create directory if needed
@@ -277,7 +297,7 @@ export function registerExportCommand(program: Command): void {
             // Export
             const content = format === 'json' ? exportToJson(session) : exportToMarkdown(session);
 
-            writeFileSync(outputPath, content, 'utf-8');
+            writeFileAtomic(outputPath, content);
             const indexScope = session.indexScope ?? (workspaceFilter ? 'workspace' : 'global');
             const indexWorkspacePath =
               indexScope === 'workspace'
