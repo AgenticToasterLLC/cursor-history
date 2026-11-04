@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.20.0-beta.0] - 2026-11-04 (prerelease)
+
+Prerelease from the AgenticToasterLLC fork for testing before the upstream pull request. Not
+published to npm; distributed as a GitHub release tarball.
+
 ### Added
 
 - Migration safety: `migrateSession`/`migrateWorkspace` (and the CLI) now refuse to write
