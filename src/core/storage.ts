@@ -577,6 +577,18 @@ function composerBelongsToWorkspace(
         return true;
       }
     }
+
+    // Multi-root (.code-workspace) records carry no `uri`; `configPath` names the
+    // workspace file. The `id` match above is exact and preferred.
+    const configPath = workspaceIdentifier['configPath'];
+    if (
+      isRecord(configPath) &&
+      (workspacePathMatches(configPath['fsPath'], workspace.path) ||
+        workspacePathMatches(configPath['path'], workspace.path) ||
+        workspacePathMatches(configPath['external'], workspace.path))
+    ) {
+      return true;
+    }
   }
 
   return workspacePathMatches(composerData['workspaceUri'], workspace.path);
@@ -596,7 +608,10 @@ function composerHasWorkspaceStamp(composerData: Record<string, unknown>): boole
  * discovered workspace, derived from whatever workspace metadata the record does
  * carry. Returns null when the record has no usable workspace hint.
  */
-function workspacePathFromComposer(composerData: Record<string, unknown>): string | null {
+function workspacePathFromComposer(
+  composerData: Record<string, unknown>,
+  workspaces?: readonly Workspace[]
+): string | null {
   const workspaceIdentifier = composerData['workspaceIdentifier'];
   if (isRecord(workspaceIdentifier) && isRecord(workspaceIdentifier['uri'])) {
     const uri = workspaceIdentifier['uri'] as Record<string, unknown>;
@@ -610,6 +625,40 @@ function workspacePathFromComposer(composerData: Record<string, unknown>): strin
   const workspaceUri = composerData['workspaceUri'];
   if (typeof workspaceUri === 'string' && workspaceUri.length > 0) {
     return uriToPath(workspaceUri);
+  }
+  if (isRecord(workspaceIdentifier)) {
+    const configPath = workspaceIdentifier['configPath'];
+    return resolveWorkspaceIdentifierPath(
+      workspaceIdentifier['id'],
+      isRecord(configPath) ? configPath : undefined,
+      workspaces
+    );
+  }
+  return null;
+}
+
+/**
+ * Path of the workspace a uri-less `workspaceIdentifier` names: the discovered
+ * workspace whose storage id equals `id` (exact), else the `configPath` file.
+ */
+function resolveWorkspaceIdentifierPath(
+  id: unknown,
+  configPath: Record<string, unknown> | undefined,
+  workspaces?: readonly Workspace[]
+): string | null {
+  if (typeof id === 'string' && id.length > 0 && workspaces) {
+    const byId = workspaces.find((workspace) => workspace.id === id);
+    if (byId) return byId.path;
+  }
+  if (configPath) {
+    for (const field of ['fsPath', 'path', 'external'] as const) {
+      const value = configPath[field];
+      if (typeof value === 'string' && value.length > 0) {
+        const path = uriToPath(value);
+        const byPath = workspaces?.find((workspace) => pathsEqual(workspace.path, path));
+        return byPath ? byPath.path : path;
+      }
+    }
   }
   return null;
 }
@@ -2363,6 +2412,10 @@ interface GlobalComposerMembershipRow {
   uriPath?: string | null;
   externalPath?: string | null;
   workspaceUri?: string | null;
+  /** `workspaceIdentifier.configPath.*` (multi-root `.code-workspace` records have no `uri`). */
+  configFsPath?: string | null;
+  configPathPath?: string | null;
+  configExternal?: string | null;
   /** Test-double compatibility only; the production query never selects this column. */
   value?: string;
 }
@@ -2376,10 +2429,11 @@ function getGlobalComposerWorkspacePathMetadata(
   db: Database,
   composerId: string,
   budget = createComposerSqliteBudget(),
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  workspaces?: readonly Workspace[]
 ): string | null {
   try {
-    return projectGlobalComposerWorkspacePathMetadata(db, composerId, budget, signal);
+    return projectGlobalComposerWorkspacePathMetadata(db, composerId, budget, signal, workspaces);
   } catch (error) {
     throwOwningDatabaseReadFailure(error);
   }
@@ -2389,7 +2443,8 @@ function projectGlobalComposerWorkspacePathMetadata(
   db: Database,
   composerId: string,
   budget: ReturnType<typeof createComposerSqliteBudget>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  workspaces?: readonly Workspace[]
 ): string | null {
   const metadata = getBoundedComposerMetadataByKey(
     db,
@@ -2405,7 +2460,7 @@ function projectGlobalComposerWorkspacePathMetadata(
     budget.admitDecodedValue(Buffer.byteLength(inlineValue));
     try {
       const parsed = JSON.parse(inlineValue) as unknown;
-      return isRecord(parsed) ? workspacePathFromComposer(parsed) : null;
+      return isRecord(parsed) ? workspacePathFromComposer(parsed, workspaces) : null;
     } catch {
       return null;
     }
@@ -2414,10 +2469,14 @@ function projectGlobalComposerWorkspacePathMetadata(
   const row = db
     .prepare(
       `SELECT
+        CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.id') END AS workspaceId,
         CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.uri.fsPath') END AS fsPath,
         CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.uri.path') END AS uriPath,
         CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.uri.external') END AS externalPath,
-        CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceUri') END AS workspaceUri
+        CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceUri') END AS workspaceUri,
+        CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.configPath.fsPath') END AS configFsPath,
+        CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.configPath.path') END AS configPathPath,
+        CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.configPath.external') END AS configExternal
       FROM cursorDiskKV WHERE rowid = ?`
     )
     .get(metadata.rowId) as Omit<GlobalComposerMembershipRow, 'key'> | undefined;
@@ -2425,11 +2484,27 @@ function projectGlobalComposerWorkspacePathMetadata(
   const projected = [row.fsPath, row.uriPath, row.externalPath, row.workspaceUri].filter(
     (value): value is string => typeof value === 'string'
   );
+  const configProjected = [row.configFsPath, row.configPathPath, row.configExternal].filter(
+    (value): value is string => typeof value === 'string'
+  );
   budget.admitDecodedValue(
-    projected.reduce((total, value) => total + Buffer.byteLength(value, 'utf8'), 0)
+    [...projected, ...configProjected, row.workspaceId].reduce(
+      (total: number, value) =>
+        total + (typeof value === 'string' ? Buffer.byteLength(value, 'utf8') : 0),
+      0
+    )
   );
   const candidate = projected.find((value) => value.length > 0);
-  return candidate ? uriToPath(candidate) : null;
+  if (candidate) return uriToPath(candidate);
+  return resolveWorkspaceIdentifierPath(
+    row.workspaceId,
+    {
+      fsPath: row.configFsPath,
+      path: row.configPathPath,
+      external: row.configExternal,
+    },
+    workspaces
+  );
 }
 
 /**
@@ -2467,7 +2542,10 @@ function projectGlobalComposerMembershipRows(
                 CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.uri.fsPath') END AS fsPath,
                 CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.uri.path') END AS uriPath,
                 CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.uri.external') END AS externalPath,
-                CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceUri') END AS workspaceUri
+                CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceUri') END AS workspaceUri,
+                CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.configPath.fsPath') END AS configFsPath,
+                CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.configPath.path') END AS configPathPath,
+                CASE WHEN json_valid(value) THEN json_extract(value, '$.workspaceIdentifier.configPath.external') END AS configExternal
               FROM cursorDiskKV WHERE rowid = ?`
             )
             .get(metadata.rowId) as GlobalComposerMembershipRow | undefined;
@@ -2479,6 +2557,9 @@ function projectGlobalComposerMembershipRows(
             row.uriPath,
             row.externalPath,
             row.workspaceUri,
+            row.configFsPath,
+            row.configPathPath,
+            row.configExternal,
           ].reduce(
             (total, value) =>
               total + (typeof value === 'string' ? Buffer.byteLength(value, 'utf8') : 0),
@@ -2505,9 +2586,15 @@ function membershipIdsForWorkspace(
   for (const row of rows) {
     let matches =
       row.workspaceId === workspace.id ||
-      [row.fsPath, row.uriPath, row.externalPath, row.workspaceUri].some((candidate) =>
-        workspacePathMatches(candidate, workspace.path)
-      );
+      [
+        row.fsPath,
+        row.uriPath,
+        row.externalPath,
+        row.workspaceUri,
+        row.configFsPath,
+        row.configPathPath,
+        row.configExternal,
+      ].some((candidate) => workspacePathMatches(candidate, workspace.path));
     // Existing unit-test adapters may return the historical key/value row
     // shape. Real SQLite never selects `value` in this projection query.
     if (!matches && typeof row.value === 'string') {
@@ -4531,7 +4618,7 @@ export async function listSessions(
     );
     if (!publicSummary) return false;
 
-    const derivedPath = workspacePathFromComposer(preferredRecord.data);
+    const derivedPath = workspacePathFromComposer(preferredRecord.data, workspaces);
     const workspacePath = derivedPath ? contractPath(derivedPath) : '(global)';
     const summary: ChatSessionSummary = {
       id: publicId,
@@ -5051,7 +5138,8 @@ export async function listSessions(
                   globalDb,
                   preferredExactId,
                   globalCatalogBudget,
-                  options.signal ?? context.signal
+                  options.signal ?? context.signal,
+                  workspaces
                 );
                 if (projectedWorkspacePath) {
                   globalComposerWorkspacePaths.set(logicalId, projectedWorkspacePath);
@@ -5076,7 +5164,7 @@ export async function listSessions(
                   if (globalSummary) {
                     scopedStoreComposerIds.add(logicalId);
                     const globalWorkspacePath =
-                      globalSummary.workspacePath ?? projectedWorkspacePath;
+                      projectedWorkspacePath ?? globalSummary.workspacePath;
                     allSessions.push({
                       id: globalSummary.id,
                       index: 0,
